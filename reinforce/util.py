@@ -9,3 +9,4 @@ def tabular_iter(qmat: np.ndarray):
     for s in range(qmat.shape[0]):
         for a in range(qmat.shape[1]):
             pass
+
