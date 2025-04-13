@@ -3,3 +3,4 @@ Boolean label -> b := +p | -p | b ^ b | b v b | T
 Atomic task ->   a := b U b
 
 Formula     ->   f := +a | -a | f ^ f | f v f | f U f | f ; f | G f
+
