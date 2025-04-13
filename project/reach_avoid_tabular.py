@@ -11,6 +11,7 @@ class Room:
         self.labels = []
         self.loc = torch.zeros(2, dtype=torch.uint8)
         self.safety_count = {}
+        self.subgoal_training = False
 
     def add_masks(self, masks:list[tuple[str, bool, torch.Tensor]]):
         self.masks = torch.cat((self.masks, torch.stack([mask[2] for mask in masks])))
@@ -20,19 +21,21 @@ class Room:
         c_step = int(255 / (self.masks.shape[0]-1)) if self.masks.shape[0] else 0
         canvas = np.zeros(self.shape+(3,))
         canvas[:, :, 2] = 50
-        canvas[self.loc[0], self.loc[1]] = torch.tensor([0, 0, 255])
+        for loc in self.trace:
+            canvas[loc[0], loc[1]] = torch.tensor([0, 0, 255])
         r = 0
         for goal in self.masks.numpy():
             canvas[:, :, 0] += goal * r
             canvas[:, :, 1] += goal * 80
             r += c_step
-        print(self.labels)
-        Image.fromarray(canvas.astype(np.uint8), mode="RGB").resize(self._vis_size).save("project/static/room.png")
+        Image.fromarray(np.minimum(canvas, 255).astype(np.uint8), mode="RGB").resize(self._vis_size).save("project/static/room.png")
 
     def start(self):
         full_range = torch.tensor(self.shape)/3
         loc = torch.rand(2,) * full_range
-        self.loc = loc.to(dtype=torch.uint8)
+        self.loc = loc.to(dtype=torch.int)
+        self.trace = [self.loc]
+        return self.loc
 
     def step(self, action:int):
         drn = [0,0]
@@ -56,35 +59,45 @@ class Room:
             case _:
                 raise ValueError("Not recognized action")
         
-        new_loc = self.loc + torch.Tensor(drn)
+        new_loc = self.loc + torch.tensor(drn, dtype=torch.int)
         if new_loc[0] not in range(self.shape[0]) or new_loc[1] not in range(self.shape[1]):
-            return self.loc, 0, False
-
+            return self.loc, 0, 0
         self.loc = new_loc
+        if self.subgoal_training:
+            self.trace.append(self.loc)
         for i in range(len(self.labels)):
-            if self.masks[new_loc[0], new_loc[1]]:
-                if not self.labels[i][1]:
+            if self.masks[i, new_loc[0], new_loc[1]]:
+                if self.subgoal_training and self.labels[i][1] == 2:
                     if self.labels[i][0] not in self.safety_count:
                         self.safety_count[self.labels[i][0]] = 1
                     else:
                         self.safety_count[self.labels[i][0]] += 1
-                    return self.loc, -self._reward_lev, False
-                return self.loc, self._reward_lev, True
-        return self.loc, 0, False
+                    return self.loc, -self._reward_lev, 2
+                return self.loc, self._reward_lev, 1
+        return self.loc, 0, 0
 
-if __name__ == "__main__":
-    h, w = 30, 30
+def create_room():
+    h, w = 16, 16
     room = Room(h, w)
     o0 = torch.zeros(h, w, dtype=torch.bool)
-    o0[16:21, 14:20] = 1
+    o0[8:12, 8:9] = 1
     o1 = torch.zeros(h, w, dtype=torch.bool)
-    o1[19:23, 11:21] = 1
+    o1[11:12, 8:12] = 1
     g0 = torch.zeros(h, w, dtype=torch.bool)
-    g0[27:28, 20:25] = 1
+    g0[14:16, 12:13] = 1
     g1 = torch.zeros(h, w, dtype=torch.bool)
-    g1[25:29, 22:23] = 1
+    g1[15:16, 13:15] = 1
     
-    room.add_masks([("Danger 0", False, o0), ("Danger 1", False, o1), ("Goal 0", True, g0), ("Goal 1", True, g1)])
+    room.add_masks([("Danger 0", 2, o0), ("Danger 1", 2, o1), ("Goal 0", 1, g0), ("Goal 1", 1, g1)])
+    return room
+
+if __name__ == "__main__":
+    room = create_room()
     room.start()
+    for i in range(5):
+        room.step(2)
+    for i in range(4):
+        room.step(3)
+    # print(room.trace)
     room.visual()
 
