@@ -1,4 +1,4 @@
-import torch
+import torch, random
 import numpy as np
 from PIL import Image
 
@@ -16,6 +16,9 @@ class Room:
     def add_masks(self, masks:list[tuple[str, bool, torch.Tensor]]):
         self.masks = torch.cat((self.masks, torch.stack([mask[2] for mask in masks])))
         self.labels += [(mask[0], mask[1]) for mask in masks]
+        self.terrain = torch.sum(self.masks, 0)
+        self._avail_locs = [loc for loc in filter(lambda loc: self.terrain[loc[0], loc[1]] == 0,
+            [(r,c) for r in range(self.terrain.shape[0]) for c in range(self.terrain.shape[1])])]
 
     def visual(self):
         c_step = int(255 / (self.masks.shape[0]-1)) if self.masks.shape[0] else 0
@@ -28,11 +31,16 @@ class Room:
             canvas[:, :, 0] += goal * r
             canvas[:, :, 1] += goal * 80
             r += c_step
-        Image.fromarray(np.minimum(canvas, 255).astype(np.uint8), mode="RGB").resize(self._vis_size).save("project/static/room.png")
+        canvas = np.minimum(canvas, 255).astype(np.uint8)
+        Image.fromarray(np.repeat(np.repeat(canvas, 10, axis=1), 10, axis=0), mode="RGB").resize(self._vis_size).save("project/static/room.png")
 
-    def start(self):
-        full_range = torch.tensor(self.shape)/3
-        loc = torch.rand(2,) * full_range
+    def start(self, restricted=False):
+        if restricted:
+            full_range = torch.tensor(self.shape)/3
+            loc = torch.rand(2,) * full_range
+        else:
+            loc = torch.Tensor(random.choice(self._avail_locs))
+
         self.loc = loc.to(dtype=torch.int)
         self.trace = [self.loc]
         return self.loc
@@ -86,14 +94,13 @@ def create_room():
     g0 = torch.zeros(h, w, dtype=torch.bool)
     g0[14:16, 12:13] = 1
     g1 = torch.zeros(h, w, dtype=torch.bool)
-    g1[15:16, 13:15] = 1
+    g1[15:16, 11:14] = 1
     
     room.add_masks([("Danger 0", 2, o0), ("Danger 1", 2, o1), ("Goal 0", 1, g0), ("Goal 1", 1, g1)])
     return room
 
 if __name__ == "__main__":
     room = create_room()
-    room.start()
     for i in range(5):
         room.step(2)
     for i in range(4):

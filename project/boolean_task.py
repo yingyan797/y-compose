@@ -1,7 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import random
-from collections import defaultdict
 from reach_avoid_tabular import torch, Room, create_room
 
 class GoalOrientedQLearning:
@@ -27,17 +26,17 @@ class GoalOrientedQLearning:
         
         # Q-table: state, subgoal, action -> value
         # State is (x, y), subgoal is (x, y)
-        self.Q = defaultdict(float)
+        self.Q = torch.zeros(room.shape+room.shape+(8,))
         # Set of visited states that can serve as subgoals
         self.G = set()
         
     def get_q_value(self, state, subgoal, action):
         """Get Q-value for a state-subgoal-action triple."""
-        return self.Q[((state[0], state[1]), (subgoal[0], subgoal[1]), action)]
+        return self.Q[state[0], state[1], subgoal[0], subgoal[1], action].item()
     
     def update_q_value(self, state, subgoal, action, value):
         """Update Q-value for a state-subgoal-action triple."""
-        self.Q[((state[0], state[1]), (subgoal[0], subgoal[1]), action)] = value
+        self.Q[state[0], state[1], subgoal[0], subgoal[1], action] = value
     
     def select_action(self, state):
         """Select an action using epsilon-greedy policy."""
@@ -57,7 +56,6 @@ class GoalOrientedQLearning:
                 action_values[max_q_value] = [action]
             else:
                 action_values[max_q_value].append(action)
-        
         best_actions = action_values[max(action_values.keys())]
         return best_actions[0] if len(best_actions) == 1 else random.choice(best_actions)
     
