@@ -5,47 +5,44 @@ from PIL import Image
 class Room:
     def __init__(self, height=30, width=30):
         self.shape = (height, width)
+        self.base = torch.ones((height, width), dtype=torch.uint8)
         self._vis_size = (width*40, height*40)
         self._reward_lev = 1000
-        self.masks = torch.tensor([], dtype=torch.bool)
-        self.labels = []
+        self.goals = dict[str, torch.Tensor]()
+        self.terrain = None
         self.loc = torch.zeros(2, dtype=torch.uint8)
-        self.safety_count = {}
-        self.subgoal_training = False
-
-    def add_masks(self, masks:list[tuple[str, bool, torch.Tensor]]):
-        self.masks = torch.cat((self.masks, torch.stack([mask[2] for mask in masks])))
-        self.labels += [(mask[0], mask[1]) for mask in masks]
-        self.terrain = torch.sum(self.masks, 0)
-        self._avail_locs = [loc for loc in filter(lambda loc: self.terrain[loc[0], loc[1]] == 0,
-            [(r,c) for r in range(self.terrain.shape[0]) for c in range(self.terrain.shape[1])])]
 
     def visual(self):
-        c_step = int(255 / (self.masks.shape[0]-1)) if self.masks.shape[0] else 0
-        canvas = np.zeros(self.shape+(3,))
-        canvas[:, :, 2] = 50
-        for loc in self.trace:
-            canvas[loc[0], loc[1]] = torch.tensor([0, 0, 255])
+        c_step = int(255 / (len(self.goals)-1)) if len(self.goals) > 1 else 0
+        canvas = torch.unsqueeze(self.base, 2).repeat(1,1,3).numpy().astype(int)*75
+        canvas[:, :, :2] = 0
+        for loc in self._trace:
+            canvas[loc[0], loc[1]] = torch.tensor([0, 200, 200])
         r = 0
-        for goal in self.masks.numpy():
-            canvas[:, :, 0] += goal * r
-            canvas[:, :, 1] += goal * 80
+        for goal in self.goals.values():
+            canvas[:, :, 0] += goal.numpy() * r
+            canvas[:, :, 1] += goal.numpy() * 80
             r += c_step
         canvas = np.minimum(canvas, 255).astype(np.uint8)
-        Image.fromarray(np.repeat(np.repeat(canvas, 10, axis=1), 10, axis=0), mode="RGB").resize(self._vis_size).save("project/static/room.png")
+        Image.fromarray(np.repeat(np.repeat(canvas, 10, axis=1), 10, axis=0), mode="RGB").resize(self._vis_size).save("project/static/room-goals.png")
+        Image.fromarray(np.repeat(np.repeat(self.terrain.numpy()*100, 10, axis=1), 10, axis=0), mode="L").resize(self._vis_size).save("project/static/room-terrain.png")
 
-    def start(self, restricted=False):
-        if restricted:
-            full_range = torch.tensor(self.shape)/3
-            loc = torch.rand(2,) * full_range
+    def start(self, restriction=None):
+        if self.terrain is None:
+            masks = [self.base] + [goal*2 for goal in self.goals.values()]
+            self.terrain = torch.max(torch.stack(masks), dim=0).values
+            self._avail_locs = [(r,c) for r in range(self.terrain.shape[0]) for c in range(self.terrain.shape[1]) if self.terrain[r, c] == 1]
+        if restriction is not None:
+            region = [(r,c) for r,c in self._avail_locs if restriction[r,c] > 0]
+            loc = torch.Tensor(random.choice(region))
         else:
             loc = torch.Tensor(random.choice(self._avail_locs))
 
         self.loc = loc.to(dtype=torch.int)
-        self.trace = [self.loc]
+        self._trace = [self.loc]
         return self.loc
 
-    def step(self, action:int):
+    def step(self, action:int, trace=False):
         drn = [0,0]
         match action:
             case 0:
@@ -68,49 +65,40 @@ class Room:
                 raise ValueError("Not recognized action")
         
         new_loc = self.loc + torch.tensor(drn, dtype=torch.int)
-        if new_loc[0] not in range(self.shape[0]) or new_loc[1] not in range(self.shape[1]):
+        if new_loc[0] not in range(self.shape[0]) or new_loc[1] not in range(self.shape[1]) or self.terrain[new_loc[0], new_loc[1]] == 0:
             return self.loc, 0, 0
         self.loc = new_loc
-        if self.subgoal_training:
-            self.trace.append(self.loc)
-        for i in range(len(self.labels)):
-            if self.masks[i, new_loc[0], new_loc[1]]:
-                if self.subgoal_training and self.labels[i][1] == 2:
-                    if self.labels[i][0] not in self.safety_count:
-                        self.safety_count[self.labels[i][0]] = 1
-                    else:
-                        self.safety_count[self.labels[i][0]] += 1
-                    return self.loc, -self._reward_lev, 2
-                return self.loc, self._reward_lev, 1
-        return self.loc, 0, 0
+        if trace:
+            self._trace.append(new_loc)
+        if self.terrain[new_loc[0], new_loc[1]] == 2:
+            return new_loc, self._reward_lev, 1
+        return new_loc, 0, 0
 
 def create_room():
     h, w = 16, 16
     room = Room(h, w)
-    o0 = torch.zeros(h, w, dtype=torch.bool)
-    o0[8:12, 8:9] = 1
-    o1 = torch.zeros(h, w, dtype=torch.bool)
-    o1[11:12, 8:12] = 1
-    g0 = torch.zeros(h, w, dtype=torch.bool)
-    g0[14:16, 12:13] = 1
-    g1 = torch.zeros(h, w, dtype=torch.bool)
-    g1[15:16, 11:14] = 1
+    room.base[2:7, 8:9] = 0
+    room.base[9:14, 8:9] = 0
+    o0 = torch.zeros(h, w, dtype=torch.uint8)
+    o0[7:10, 3:4] = 1
+    o1 = torch.zeros(h, w, dtype=torch.uint8)
+    o1[9:10, 3:7] = 1
+    g0 = torch.zeros(h, w, dtype=torch.uint8)
+    g0[13:16, 12:13] = 1
+    g1 = torch.zeros(h, w, dtype=torch.uint8)
+    g1[15:16, 10:14] = 1
     
-    room.add_masks([("Danger 0", 2, o0), ("Danger 1", 2, o1), ("Goal 0", 1, g0), ("Goal 1", 1, g1)])
+    room.goals = {"Danger 0":o0, "Danger 1":o1, "Target 0":g0, "Target 1":g1}
     return room
 
 if __name__ == "__main__":
-    # room = create_room()
-    # for i in range(5):
-    #     room.step(2)
-    # for i in range(4):
-    #     room.step(3)
-    # # print(room.trace)
-    # room.visual()
+    room = create_room()
+    room.start()
+    room.visual()
 
-    a = torch.ones((16,16,10,10,8))
-    pa = a.permute(0,1,4,2,3).reshape(16,16,8,-1)
+    # a = torch.ones((16,16,10,10,8))
+    # pa = a.permute(0,1,4,2,3).reshape(16,16,8,-1)
 
-    indices = torch.tensor([12, 45, 79, 88], dtype=torch.int)
-    print(pa.index_select(3, indices).shape)
+    # indices = torch.tensor([12, 45, 79, 88], dtype=torch.int)
+    # print(pa.index_select(3, indices).shape)
 
