@@ -2,9 +2,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 import random
 from reach_avoid_tabular import torch, Room, create_room
+import matplotlib.pyplot as plt
+from matplotlib.patches import Arrow, Rectangle
 
 class GoalOrientedQLearning:
-    def __init__(self, room:Room, alpha=0.1, gamma=0.99, epsilon=0.1):
+    def __init__(self, room:Room, pretrained=False, alpha=0.1, gamma=0.99, epsilon=0.1):
         """
         Initialize the Goal-Oriented Q-Learning algorithm for a 2D reach-avoid navigation task.
         
@@ -26,7 +28,7 @@ class GoalOrientedQLearning:
         
         # Q-table: state, subgoal, action -> value
         # State is (x, y), subgoal is (x, y)
-        self.Q = torch.zeros(room.shape+room.shape+(8,))
+        self.Q = torch.zeros(room.shape+room.shape+(8,)) if not pretrained else torch.load("project/static/goal-q.pt")
         # Set of visited states that can serve as subgoals
         self.G = set()
         
@@ -100,54 +102,91 @@ class GoalOrientedQLearning:
                     break
 
             rewards_per_episode.append(episode_reward)
-            if episode % 5 == 0:
+            if episode % 20 == 0:
                 print(f"Episode {episode}, status {done}|{steps}|{state}, Avg Reward: {np.mean(rewards_per_episode[-100:]):.2f}")
+                torch.save(self.Q, "project/static/goal-q.pt")
         
         return rewards_per_episode
     
-    def visualize_policy(self):
-        """Visualize the learned policy on the grid."""
-        policy_grid = np.zeros((self.grid_size, self.grid_size), dtype=int)
+    def q_compose(self, mask):
+        subgoals = [r*self.env.shape[1]+c for r,c in filter(lambda loc: mask[loc[0], loc[1]] > 0,
+            [(r,c) for r in range(self.env.shape[0]) for c in range(self.env.shape[1])])]
+
+        return self.Q.permute(0,1,4,2,3).reshape(self.env.shape+(8,-1)).index_select(3, torch.tensor(subgoals, dtype=torch.int)).max(dim=3).values
+
+    def visualize_policy_with_arrows(self, mask):
+        """
+        Visualize a policy grid using directional arrows.
         
-        for x in range(self.grid_size):
-            for y in range(self.grid_size):
-                state = (x, y)
-                if state in self.obstacles:
-                    policy_grid[x, y] = -1  # Obstacle
-                elif state == self.goal_state:
-                    policy_grid[x, y] = 8   # Goal
-                else:
-                    best_action = self.select_action(state)
-                    policy_grid[x, y] = best_action
+        Args:
+            policy_grid: An n x n numpy array where each cell contains an integer 0-7 representing a direction
+            goal: Tuple (x, y) indicating the goal position
+            obstacles: Set of (x, y) tuples representing obstacle positions
+            danger_zones: Set of (x, y) tuples representing danger zone positions
+        """
+        policy_grid = self.q_compose(mask).argmax(2).numpy()
+
+        # Create a new figure
+        fig, ax = plt.subplots(figsize=(10, 10))
         
-        # Create a visualization
-        plt.figure(figsize=(10, 10))
-        cmap = plt.cm.viridis
-        cmap.set_bad('black')
+        # Set background color and limits
+        ax.set_facecolor('white')
+        ax.set_xlim(-0.5, policy_grid.shape[1]-0.5)
+        ax.set_ylim(-0.5, policy_grid.shape[0]-0.5)
         
-        masked_grid = np.ma.masked_where(policy_grid == -1, policy_grid)
-        plt.imshow(masked_grid, cmap=cmap, interpolation='nearest')
+        # Draw grid lines
+        for i in range(policy_grid.shape[0]+1):
+            ax.axhline(i-0.5, color='gray', linestyle='-', alpha=0.3)
+        for i in range(policy_grid.shape[1]+1):
+            ax.axvline(i-0.5, color='gray', linestyle='-', alpha=0.3)
+
+        # Define arrow directions (dx, dy) for each action
+        # Action directions: 0=N, 1=NE, 2=E, 3=SE, 4=S, 5=SW, 6=W, 7=NW
+        directions = {
+            0: (0, 0.4),    # North (up)
+            1: (0.3, 0.3),  # Northeast
+            2: (0.4, 0),    # East (right)
+            3: (0.3, -0.3), # Southeast
+            4: (0, -0.4),   # South (down)
+            5: (-0.3, -0.3),# Southwest
+            6: (-0.4, 0),   # West (left)
+            7: (-0.3, 0.3)  # Northwest
+        }
         
-        # Mark the goal
-        goal_x, goal_y = self.goal_state
-        plt.plot(goal_y, goal_x, 'r*', markersize=15)
+        # Define colors for different elements
+        arrow_color = 'blue'
+        goal_color = 'green'
         
-        # Mark danger zones
-        for x, y in self.danger_zones:
-            plt.plot(y, x, 'rx', markersize=6, alpha=0.5)
+        for x in range(policy_grid.shape[1]):
+            for y in range(policy_grid.shape[0]):
+                if mask[y][x] > 0:
+                    ax.add_patch(Rectangle((x-0.5, y-0.5), 1, 1, facecolor=goal_color, alpha=0.7))
+                    continue
         
-        # Create a grid
-        plt.grid(True, which='both', color='gray', linestyle='-', linewidth=0.5, alpha=0.3)
-        plt.title('Learned Policy (Direction to Move)')
+                # Draw arrows for each cell in the grid
+                action = policy_grid[y, x]
+                    
+                # Check if this is a valid action
+                if action in directions:
+                    dx, dy = directions[action]
+                    
+                    # Create arrow
+                    arrow = Arrow(x, y, dx, -dy, width=0.3, color=arrow_color)
+                    ax.add_patch(arrow)
         
-        # Define action labels
-        action_labels = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
-        cbar = plt.colorbar(ticks=range(8))
-        cbar.set_ticklabels(action_labels)
+        # Add a legend for directions
+        legend_elements = []
+        direction_names = ['North', 'Northeast', 'East', 'Southeast', 
+                        'South', 'Southwest', 'West', 'Northwest']
+        
+        # Set axis labels and title
+        ax.set_xlabel('Column (x)')
+        ax.set_ylabel('Row (y)')
+        ax.invert_yaxis()
+        ax.set_title('Policy Visualization with Direction Arrows')
         
         plt.tight_layout()
-        plt.savefig('policy_visualization.png')
-        plt.show()
+        plt.savefig("project/static/policy.png")
     
     def test_policy(self, start_state=None, max_steps=200):
         """Test the learned policy from a given start state."""
@@ -206,29 +245,31 @@ if __name__ == "__main__":
     # Initialize the environment and agent
     agent = GoalOrientedQLearning(
         room=create_room(),
+        pretrained=True,
         alpha=0.1, 
         gamma=0.99, 
         epsilon=0.1, 
     )
     
     # Train the agent
-    rewards = agent.train(num_episodes=5000, max_steps_per_episode=500)
+    # rewards = agent.train(num_episodes=5000, max_steps_per_episode=500)
+    agent.visualize_policy_with_arrows(agent.env.masks[0])
     
-    # Plot learning curve
-    plt.figure(figsize=(10, 5))
-    plt.plot(rewards)
-    plt.title('Learning Curve')
-    plt.xlabel('Episode')
-    plt.ylabel('Total Reward')
-    plt.grid(True)
-    plt.savefig('learning_curve.png')
-    plt.show()
+    # # Plot learning curve
+    # plt.figure(figsize=(10, 5))
+    # plt.plot(rewards)
+    # plt.title('Learning Curve')
+    # plt.xlabel('Episode')
+    # plt.ylabel('Total Reward')
+    # plt.grid(True)
+    # plt.savefig('learning_curve.png')
+    # plt.show()
     
-    # Visualize the learned policy
-    agent.visualize_policy()
+    # # Visualize the learned policy
+    # agent.visualize_policy()
     
-    # Test the policy from different starting points
-    test_starts = [(0, 0), (15, 0), (29, 0)]
-    for start in test_starts:
-        print(f"\nTesting from start position: {start}")
-        agent.test_policy(start)
+    # # Test the policy from different starting points
+    # test_starts = [(0, 0), (15, 0), (29, 0)]
+    # for start in test_starts:
+    #     print(f"\nTesting from start position: {start}")
+    #     agent.test_policy(start)

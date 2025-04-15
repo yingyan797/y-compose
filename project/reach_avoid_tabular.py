@@ -100,11 +100,17 @@ def create_room():
     return room
 
 if __name__ == "__main__":
-    room = create_room()
-    for i in range(5):
-        room.step(2)
-    for i in range(4):
-        room.step(3)
-    # print(room.trace)
-    room.visual()
+    # room = create_room()
+    # for i in range(5):
+    #     room.step(2)
+    # for i in range(4):
+    #     room.step(3)
+    # # print(room.trace)
+    # room.visual()
+
+    a = torch.ones((16,16,10,10,8))
+    pa = a.permute(0,1,4,2,3).reshape(16,16,8,-1)
+
+    indices = torch.tensor([12, 45, 79, 88], dtype=torch.int)
+    print(pa.index_select(3, indices).shape)
 
