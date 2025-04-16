@@ -260,8 +260,8 @@ class GoalOrientedQLearning:
 if __name__ == "__main__":
     # Initialize the environment and agent
     agent = GoalOrientedQLearning(
-        room=create_room(),
-        pretrained=True,
+        room=create_room("color shape experiment"),
+        pretrained=False,
         alpha=0.1, 
         gamma=0.99, 
         epsilon=0.1, 
@@ -269,9 +269,9 @@ if __name__ == "__main__":
     
     # Train the agent
     agent.env.start()
-    # rewards = agent.train(num_episodes=100, max_steps_per_episode=500)
-    t0,t1,t2,t3 = list(agent.env.goals.values())
-    agent.visualize_policy_with_arrows(task_or([t1, t2]))
+    rewards = agent.train(num_episodes=400, max_steps_per_episode=50)
+    T = agent.env.goals
+    agent.visualize_policy_with_arrows(task_or([T["blue square"], T["beige square"]]))
     
     # # Plot learning curve
     # plt.figure(figsize=(10, 5))

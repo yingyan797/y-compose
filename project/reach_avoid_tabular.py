@@ -74,25 +74,39 @@ class Room:
             return new_loc, self._reward_lev, 1
         return new_loc, 0, 0
 
-def create_room():
-    h, w = 16, 16
-    room = Room(h, w)
-    room.base[2:7, 8:9] = 0
-    room.base[9:14, 8:9] = 0
-    o0 = torch.zeros(h, w, dtype=torch.uint8)
-    o0[7:10, 3:4] = 1
-    o1 = torch.zeros(h, w, dtype=torch.uint8)
-    o1[9:10, 3:7] = 1
-    g0 = torch.zeros(h, w, dtype=torch.uint8)
-    g0[13:16, 12:13] = 1
-    g1 = torch.zeros(h, w, dtype=torch.uint8)
-    g1[15:16, 10:14] = 1
-    
-    room.goals = {"Danger 0":o0, "Danger 1":o1, "Target 0":g0, "Target 1":g1}
+def create_room(name):
+    match name:
+        case "custom default":
+            h, w = 16, 16
+            room = Room(h, w)
+            room.base[2:7, 8:9] = 0
+            room.base[9:14, 8:9] = 0
+            o0 = torch.zeros(h, w, dtype=torch.uint8)
+            o0[7:10, 3:4] = 1
+            o1 = torch.zeros(h, w, dtype=torch.uint8)
+            o1[9:10, 3:7] = 1
+            g0 = torch.zeros(h, w, dtype=torch.uint8)
+            g0[13:16, 12:13] = 1
+            g1 = torch.zeros(h, w, dtype=torch.uint8)
+            g1[15:16, 10:14] = 1
+            
+            room.goals = {"Danger 0":o0, "Danger 1":o1, "Target 0":g0, "Target 1":g1}
+        case "color shape experiment":
+            room = Room(8,8)
+            room.base[4,2] = 0
+            room.base[3:6,3] = 0
+            room.base[2:4,4] = 0
+            locs = [(0,0), (0,6), (0,7), (7,0), (5,2), (6,6)]
+            names = ["beige square", "beige circle", "blue circle", "blue square", "purple square", "purple circle"]
+            for i in range(len(names)):
+                goal = torch.zeros(8,8, dtype=torch.uint8)
+                goal[locs[i]] = 1
+                room.goals[names[i]] = goal
+
     return room
 
 if __name__ == "__main__":
-    room = create_room()
+    room = create_room("color shape experiment")
     room.start()
     room.visual()
 
