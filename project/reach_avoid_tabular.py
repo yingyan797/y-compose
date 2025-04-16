@@ -96,11 +96,12 @@ def create_room(name):
             room.base[4,2] = 0
             room.base[3:6,3] = 0
             room.base[2:4,4] = 0
-            locs = [(0,0), (0,6), (0,7), (7,0), (5,2), (6,6)]
-            names = ["beige square", "beige circle", "blue circle", "blue square", "purple square", "purple circle"]
+            locs = [[(0,0), (0,6)], [(0,7), (7,0)], [(5,2), (6,6)], [(0,0),(7,0),(5,2)], [(0,6),(0,7),(6,6)]]
+            names = ["beige", "blue", "purple", "square", "circle"]
             for i in range(len(names)):
                 goal = torch.zeros(8,8, dtype=torch.uint8)
-                goal[locs[i]] = 1
+                for loc in locs[i]:
+                    goal[loc] = 1
                 room.goals[names[i]] = goal
 
     return room

@@ -69,7 +69,7 @@ class GoalOrientedQLearning:
         best_actions = action_values[max(action_values.keys())]
         return best_actions[0] if len(best_actions) == 1 else random.choice(best_actions)
     
-    def train(self, num_episodes=1000, max_steps_per_episode=1000):
+    def train(self, num_episodes=1000, max_steps_per_episode=1000, fn="goal-q"):
         """Train the agent using Goal-Oriented Q-Learning."""
         rewards_per_episode = []
         
@@ -112,7 +112,7 @@ class GoalOrientedQLearning:
             rewards_per_episode.append(episode_reward)
             if episode % 20 == 0:
                 print(f"Episode {episode}, status {done}|{steps}|{state}, Avg Reward: {np.mean(rewards_per_episode[-100:]):.2f}")
-                torch.save(self.Q, "project/static/goal-q.pt")
+                torch.save(self.Q, f"project/static/{fn}.pt")
         
         return rewards_per_episode
     
@@ -120,7 +120,7 @@ class GoalOrientedQLearning:
         subgoals = [r*self.env.shape[1]+c for r in range(self.env.shape[0]) for c in range(self.env.shape[1]) if mask[r, c] > 0]
         return self.Q.permute(0,1,4,2,3).reshape(self.env.shape+(8,-1)).index_select(3, torch.tensor(subgoals, dtype=torch.int)).max(dim=3).values
 
-    def visualize_policy_with_arrows(self, mask):
+    def visualize_policy_with_arrows(self, mask, fn="policy"):
         """
         Visualize a policy grid using directional arrows.
         
@@ -202,7 +202,7 @@ class GoalOrientedQLearning:
         ax.set_title('Policy Visualization with Direction Arrows')
         
         plt.tight_layout()
-        plt.savefig("project/static/policy.png")
+        plt.savefig(f"project/static/{fn}.png")
     
     def test_policy(self, start_state=None, max_steps=200):
         """Test the learned policy from a given start state."""
@@ -261,7 +261,7 @@ if __name__ == "__main__":
     # Initialize the environment and agent
     agent = GoalOrientedQLearning(
         room=create_room("color shape experiment"),
-        pretrained=False,
+        pretrained=True,
         alpha=0.1, 
         gamma=0.99, 
         epsilon=0.1, 
@@ -269,9 +269,10 @@ if __name__ == "__main__":
     
     # Train the agent
     agent.env.start()
-    rewards = agent.train(num_episodes=400, max_steps_per_episode=50)
+    # rewards = agent.train(num_episodes=400, max_steps_per_episode=50)
     T = agent.env.goals
-    agent.visualize_policy_with_arrows(task_or([T["blue square"], T["beige square"]]))
+    agent.visualize_policy_with_arrows(task_or([T["blue"], T["purple"]]), "blue-or-purple")
+    agent.visualize_policy_with_arrows(task_and([T["beige"], T["square"]]), "beige-square")
     
     # # Plot learning curve
     # plt.figure(figsize=(10, 5))
