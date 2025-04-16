@@ -5,6 +5,14 @@ from reach_avoid_tabular import torch, Room, create_room
 import matplotlib.pyplot as plt
 from matplotlib.patches import Arrow, Rectangle
 
+
+def task_not(goal: torch.Tensor):
+    return 1 - goal
+def task_and(goals: list[torch.Tensor]):
+    return torch.min(torch.stack(goals), dim=0).values
+def task_or(goals: list[torch.Tensor]):
+    return torch.max(torch.stack(goals), dim=0).values
+
 class GoalOrientedQLearning:
     def __init__(self, room:Room, pretrained=False, alpha=0.1, gamma=0.99, epsilon=0.1):
         """
@@ -158,15 +166,17 @@ class GoalOrientedQLearning:
         
         # Define colors for different elements
         goal_color = 'green'
-        void_colors = ['black', '', 'blue']
+        terminal_color = 'yellow'
+        obstacle_color = 'black'
         for x in range(policy_grid.shape[1]):
             for y in range(policy_grid.shape[0]):
-                if mask[y][x] > 0:
+                if self.env.terrain[y,x] == 0:
+                    ax.add_patch(Rectangle((x-0.5, y-0.5), 1, 1, facecolor=obstacle_color, alpha=0.7))
+                    continue
+                elif mask[y][x] > 0:
                     ax.add_patch(Rectangle((x-0.5, y-0.5), 1, 1, facecolor=goal_color, alpha=0.7))
-                    continue
-                elif self.env.terrain[y,x] != 1:
-                    ax.add_patch(Rectangle((x-0.5, y-0.5), 1, 1, facecolor=void_colors[self.env.terrain[y,x]], alpha=0.7))
-                    continue
+                elif self.env.terrain[y,x] == 2:
+                    ax.add_patch(Rectangle((x-0.5, y-0.5), 1, 1, facecolor=terminal_color, alpha=0.7))
                 
                 # Draw arrows for each cell in the grid
                 action = policy_grid[y, x]
@@ -259,8 +269,9 @@ if __name__ == "__main__":
     
     # Train the agent
     agent.env.start()
-    # rewards = agent.train(num_episodes=100, max_steps_per_episode=500)\
-    agent.visualize_policy_with_arrows(agent.env.goals["Danger 1"])
+    # rewards = agent.train(num_episodes=100, max_steps_per_episode=500)
+    t0,t1,t2,t3 = list(agent.env.goals.values())
+    agent.visualize_policy_with_arrows(task_or([t1, t2]))
     
     # # Plot learning curve
     # plt.figure(figsize=(10, 5))
