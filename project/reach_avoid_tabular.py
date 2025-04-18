@@ -1,4 +1,4 @@
-import torch, random
+import torch, random, os, json
 import numpy as np
 from PIL import Image
 
@@ -106,8 +106,30 @@ def create_room(name):
 
     return room
 
+def load_room(name):
+    fn = f"project/static/saved_grids/{name}"
+    with open(fn, 'r') as f:
+        grid = json.load(f)
+    h, w = grid['grid_rows'], grid['grid_cols']
+    room = Room(h, w)
+    layers = {}
+    for loc in grid['selected_cells']:
+        goal = loc['type']
+        r,c = loc['row'], loc['col']
+        if goal == 'obstacle':
+            room.base[r,c] = 0
+        else:
+            if goal not in layers:
+                layers[goal] = torch.zeros(h, w, dtype=torch.uint8)
+            layers[goal][r,c] = 1
+
+    room.goals = layers
+    return room
+
+
 if __name__ == "__main__":
-    room = create_room("color shape experiment")
+    room = load_room("20250418222318.json")
+    # room = create_room("color shape experiment")
     room.start()
     room.visual()
 

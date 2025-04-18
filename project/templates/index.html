@@ -196,16 +196,36 @@
             transform: translate(-50%, -50%);
             z-index: 1;
         }
+        
+        .grid-selection {
+            margin: 20px 0;
+            text-align: center;
+        }
+        
     </style>
 </head>
 <body>
-    <h1>Grid Selection App</h1>
+    <h2 style="border-bottom: dashed; background-color: azure;">Terrain Editing App | 
+        <select id="saved-grids">
+            <option value="">-- Select Saved Grid --</option>
+            {% for grid in saved_grids %}
+                <option value="{{ grid.id }}">{{ grid.name }} ({{ grid.rows }}×{{ grid.cols }})</option>
+            {% endfor %}
+        </select>
+        <button id="load-grid">Load Grid</button>
+        <button id="delete-grid" style="background-color: lightsalmon;">Delete</button>
+        <input type="text" id="grid-name" placeholder="New Grid Name" value="{{ grid_name|default('') }}">
+        <button id="save-selection">Save Grid</button>
+        <a href="/"> / reset / </a>
+    </h2>
     
-    <div class="controls"> <a href="/"> / reset / </a>
-        <label for="grid-size">Grid Size:</label>
-        <input type="number" id="grid-size" class="size-input" min="1" max="64" value="{{ grid_size|default(8) }}">
+    <div class="controls"> 
+        File: <textarea id="file-name" readonly rows="1" cols="20"></textarea> 
+        <button style="font-size: small; background-color: gray;" onclick="copyToClipboard('file-name')">copy</button> Dimension:
+        <input type="number" id="grid-rows" class="size-input" min="1" max="64" value="{{ grid_rows|default(8) }}">
+        ×
+        <input type="number" id="grid-cols" class="size-input" min="1" max="64" value="{{ grid_cols|default(8) }}">
         <button id="create-grid">Create Grid</button>
-        <button id="save-selection">Save Selection</button>
         <button id="clear-selection">Clear Selection</button>
         <span style="border: dashed; padding: 5px;">
             <button id="single-select" class="active">Single Cell</button>
@@ -213,11 +233,11 @@
             <button id="add-type-mode" class="active">Add Type</button>
             <button id="remove-type-mode">Remove Type</button>
         </span>
-        </div>
+    </div>
     
     <div class="cell-types-container" id="cell-types-list">
         <div class="custom-type-creator">
-            <input type="text" id="custom-type-name" placeholder="New Type Name">
+            <input type="text" id="custom-type-name" placeholder="New Goal Name">
             <input type="color" id="custom-type-color" class="color-picker" value="#3F51B5">
             <button id="add-custom-type">Add goal</button>
         </div>
@@ -245,41 +265,43 @@
             <div class="cell-type-color" style="background-color: #00BCD4;"></div>
             <span>Goal 5</span>
         </div>
+        {% if custom_types %}
+            {% for type_key, type_info in custom_types.items() %}
+                <div class="cell-type-tag" data-type="{{ type_key }}">
+                    <div class="cell-type-color" style="background-color: {{ type_info.color }};"></div>
+                    <span>{{ type_info.name }}</span>
+                    <span class="cell-type-delete">×</span>
+                </div>
+            {% endfor %}
+        {% endif %}
     </div>
     
     <div class="grid-container">
         <div id="grid" class="grid"></div>
     </div>
     
-    {% if backend_grid %}
-    <h2>Grid from Backend:</h2>
-    <div class="grid-container">
-        <div id="backend-grid" class="grid">
-            {% for row in backend_grid %}
-                {% for cell in row %}
-                    <div class="cell">
-                        {{ loop.index0 }},{{ loop.parent.loop.index0 }}
-                        <div class="cell-labels">
-                            {% if cell.types %}
-                                {% for type in cell.types %}
-                                    <span class="cell-label">{{ type.label }}</span>
-                                {% endfor %}
-                            {% endif %}
-                        </div>
-                    </div>
-                {% endfor %}
-            {% endfor %}
-        </div>
-    </div>
-    {% endif %}
-    
     <script>
+        function copyToClipboard(elem) {
+            const fileNameElement = document.getElementById(elem);
+            fileNameElement.select();
+            document.execCommand('copy');
+            
+            // Visual feedback
+            const btn = document.querySelector('.copy-btn');
+            const originalText = btn.textContent;
+            btn.textContent = 'Copied!';
+            
+            setTimeout(function() {
+                btn.textContent = originalText;
+            }, 1500);
+        }
         document.addEventListener('DOMContentLoaded', function() {
             const gridContainer = document.getElementById('grid');
             const createGridButton = document.getElementById('create-grid');
             const saveSelectionButton = document.getElementById('save-selection');
             const clearSelectionButton = document.getElementById('clear-selection');
-            const gridSizeInput = document.getElementById('grid-size');
+            const gridRowsInput = document.getElementById('grid-rows');
+            const gridColsInput = document.getElementById('grid-cols');
             const singleSelectButton = document.getElementById('single-select');
             const rangeSelectButton = document.getElementById('range-select');
             const addTypeModeButton = document.getElementById('add-type-mode');
@@ -288,6 +310,11 @@
             const customTypeColorInput = document.getElementById('custom-type-color');
             const addCustomTypeButton = document.getElementById('add-custom-type');
             const cellTypesList = document.getElementById('cell-types-list');
+            const savedGridsSelect = document.getElementById('saved-grids');
+            const loadGridButton = document.getElementById('load-grid');
+            const delGridButton = document.getElementById('delete-grid');
+            const gridNameInput = document.getElementById('grid-name');
+            const fileName = document.getElementById("file-name");
             
             let selectedCells = [];
             let isRangeSelectionMode = false;
@@ -302,18 +329,38 @@
                 'goal-5': { name: 'Goal 5', color: '#00BCD4' }
             };
             
-            let currentCellType = 'selected';
+            // Initialize with any custom types from backend
+            {% if custom_types %}
+                {% for type_key, type_info in custom_types.items() %}
+                    cellTypes['{{ type_key }}'] = { 
+                        name: '{{ type_info.name }}', 
+                        color: '{{ type_info.color }}' 
+                    };
+                    addCellTypeStyle('{{ type_key }}', '{{ type_info.color }}');
+                {% endfor %}
+            {% endif %}
             
-            // Initialize the grid with default size
-            createGrid({{ grid_size|default(8) }});
+            let currentCellType = 'obstacle';
+            
+            // Initialize the grid with default size or loaded size
+            createGrid(
+                {{ grid_rows|default(8) }}, 
+                {{ grid_cols|default(8) }}
+            );
+            
+            // Load any existing cell selections from backend
+            {% if selected_cells %}
+                loadCellSelections({{ selected_cells|tojson }});
+            {% endif %}
             
             // Create grid when button is clicked
             createGridButton.addEventListener('click', function() {
-                const size = parseInt(gridSizeInput.value);
-                if (size >= 1 && size <= 20) {
-                    createGrid(size);
+                const rows = parseInt(gridRowsInput.value);
+                const cols = parseInt(gridColsInput.value);
+                if (rows >= 1 && rows <= 64 && cols >= 1 && cols <= 64) {
+                    createGrid(rows, cols);
                 } else {
-                    alert('Please enter a grid size between 1 and 64');
+                    alert('Please enter grid dimensions between 1 and 64');
                 }
             });
             
@@ -344,6 +391,121 @@
                 removeTypeModeButton.classList.add('active');
                 addTypeModeButton.classList.remove('active');
             });
+            
+            // Load grid button handler
+            delGridButton.addEventListener('click', function() {
+                const gridId = savedGridsSelect.value;
+                if (!gridId) {
+                    alert('Please select a grid to delete');
+                    return;
+                }
+                
+                fetch(`/delete_grid/${gridId}`, {
+                    method: 'POST',
+                }).then(response => response.json()).then(data => {
+                    if (data.success) {
+                        alert('Grid ' + gridId + ' deleted successfully!');
+                        savedGridsSelect.remove(savedGridsSelect.selectedIndex)
+                    } else {
+                        alert('Error deleting grid selection: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('An error occurred while saving.');
+                });
+            });
+            loadGridButton.addEventListener('click', function() {
+                const gridId = savedGridsSelect.value;
+                if (!gridId) {
+                    alert('Please select a grid to load');
+                    return;
+                }
+                
+                fetch(`/load_grid/${gridId}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            // Update grid dimensions inputs
+                            fileName.innerHTML = "'"+data.grid_id+".json'";
+                            gridRowsInput.value = data.grid_rows;
+                            gridColsInput.value = data.grid_cols;
+                            gridNameInput.value = data.grid_name;
+                            
+                            // Create new grid with loaded dimensions
+                            createGrid(data.grid_rows, data.grid_cols);
+                            
+                            // Clear existing cell types except defaults
+                            document.querySelectorAll('.cell-type-tag').forEach(tag => {
+                                if (tag.dataset.type && tag.dataset.type.startsWith('custom-')) {
+                                    cellTypesList.removeChild(tag);
+                                }
+                            });
+                            
+                            // Reset cell types to defaults
+                            cellTypes = {
+                                'obstacle': { name: 'Obstacle', color: '#333' },
+                                'goal-1': { name: 'Goal 1', color: '#2196F3' },
+                                'goal-2': { name: 'Goal 2', color: '#FF9800' },
+                                'goal-3': { name: 'Goal 3', color: '#9C27B0' },
+                                'goal-4': { name: 'Goal 4', color: '#E91E63' },
+                                'goal-5': { name: 'Goal 5', color: '#00BCD4' }
+                            };
+                            
+                            // Add custom cell types from loaded data
+                            if (data.cell_types) {
+                                for (const [typeKey, typeInfo] of Object.entries(data.cell_types)) {
+                                    if (typeKey.startsWith('custom-')) {
+                                        cellTypes[typeKey] = {
+                                            name: typeInfo.name,
+                                            color: typeInfo.color
+                                        };
+                                        
+                                        // Add to UI
+                                        addCellTypeTag(typeKey, typeInfo.name, typeInfo.color);
+                                        addCellTypeStyle(typeKey, typeInfo.color);
+                                    }
+                                }
+                            }
+                            
+                            // Load cell selections
+                            loadCellSelections(data.selected_cells);
+                            
+                            alert('Grid loaded successfully!');
+                        } else {
+                            alert('Error loading grid: ' + data.error);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        alert('An error occurred while loading the grid.');
+                    });
+            });
+            
+            // Load cell selections into the grid
+            function loadCellSelections(cells) {
+                selectedCells = [];
+                
+                // Clear existing selections
+                document.querySelectorAll('.cell').forEach(cell => {
+                    Object.keys(cellTypes).forEach(typeKey => {
+                        cell.classList.remove(typeKey);
+                    });
+                    
+                    const labelsContainer = cell.querySelector('.cell-labels');
+                    if (labelsContainer) {
+                        labelsContainer.innerHTML = '';
+                    }
+                });
+                
+                // Apply loaded selections
+                cells.forEach(cellData => {
+                    const cell = document.querySelector(`.cell[data-row="${cellData.row}"][data-col="${cellData.col}"]`);
+                    if (cell) {
+                        addCellType(cell, cellData.row, cellData.col, cellData.type);
+                    }
+                });
+            }
             
             // Add custom cell type
             addCustomTypeButton.addEventListener('click', function() {
@@ -422,7 +584,7 @@
                         
                         // If this was the selected type, select the default
                         if (currentCellType === typeKey) {
-                            selectCellType('selected');
+                            selectCellType('obstacle');
                         }
                     }
                 });
@@ -477,18 +639,18 @@
             }
             
             // Create a new grid with given size
-            function createGrid(size) {
+            function createGrid(rows, cols) {
                 // Clear existing grid
                 gridContainer.innerHTML = '';
                 selectedCells = [];
                 
                 // Set grid template
-                gridContainer.style.gridTemplateColumns = `repeat(${size}, 1fr)`;
-                gridContainer.style.gridTemplateRows = `repeat(${size}, 1fr)`;
+                gridContainer.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+                gridContainer.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
                 
                 // Create cells
-                for (let row = 0; row < size; row++) {
-                    for (let col = 0; col < size; col++) {
+                for (let row = 0; row < rows; row++) {
+                    for (let col = 0; col < cols; col++) {
                         const cell = document.createElement('div');
                         cell.className = 'cell';
                         cell.dataset.row = row;
@@ -653,11 +815,13 @@
             // Save selection to the backend
             saveSelectionButton.addEventListener('click', function() {
                 const formData = new FormData();
-                formData.append('grid_size', gridSizeInput.value);
+                formData.append('grid_rows', gridRowsInput.value);
+                formData.append('grid_cols', gridColsInput.value);
+                formData.append('grid_name', gridNameInput.value || 'Untitled Grid');
                 formData.append('selected_cells', JSON.stringify(selectedCells));
                 formData.append('cell_types', JSON.stringify(cellTypes));
                 
-                fetch('{{ url_for("save_grid") }}', {
+                fetch('/save_grid', {
                     method: 'POST',
                     body: formData
                 })
@@ -665,6 +829,16 @@
                 .then(data => {
                     if (data.success) {
                         alert('Grid selection saved successfully!');
+                        if (data.grid_id) {
+                            // If this is a new grid, add it to the dropdown
+                            if (!savedGridsSelect.querySelector(`option[value="${data.grid_id}"]`)) {
+                                const option = document.createElement('option');
+                                option.value = data.grid_id;
+                                option.textContent = `${gridNameInput.value || 'Untitled Grid'} (${gridRowsInput.value}×${gridColsInput.value})`;
+                                savedGridsSelect.appendChild(option);
+                                fileName.innerHTML = "'"+data.grid_id+".json'";
+                            }
+                        }
                         if (data.redirect) {
                             window.location.href = data.redirect;
                         }
@@ -697,6 +871,9 @@
                 selectedCells = [];
                 rangeStart = null;
             });
+            
+            // Select obstacle type by default
+            selectCellType('obstacle');
         });
     </script>
 </body>

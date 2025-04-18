@@ -1,0 +1,46 @@
+{
+  "grid_name": "2",
+  "grid_rows": 8,
+  "grid_cols": 8,
+  "created_at": "2025-04-18T22:04:32.550621",
+  "updated_at": "2025-04-18T22:04:32.550621",
+  "selected_cells": [
+    {
+      "row": 1,
+      "col": 2,
+      "type": "obstacle"
+    },
+    {
+      "row": 4,
+      "col": 3,
+      "type": "obstacle"
+    }
+  ],
+  "cell_types": {
+    "obstacle": {
+      "name": "Obstacle",
+      "color": "#333"
+    },
+    "goal-1": {
+      "name": "Goal 1",
+      "color": "#2196F3"
+    },
+    "goal-2": {
+      "name": "Goal 2",
+      "color": "#FF9800"
+    },
+    "goal-3": {
+      "name": "Goal 3",
+      "color": "#9C27B0"
+    },
+    "goal-4": {
+      "name": "Goal 4",
+      "color": "#E91E63"
+    },
+    "goal-5": {
+      "name": "Goal 5",
+      "color": "#00BCD4"
+    }
+  },
+  "id": "20250418220432"
+}
