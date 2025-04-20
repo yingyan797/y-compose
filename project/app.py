@@ -44,7 +44,7 @@ def save_grid():
         # Determine if this is an update or new grid based on hidden input
         grid_id = request.form.get('grid_id')
         
-        if not grid_id:
+        if not grid_id or request.form.get("copy") == "true":
             # Generate new ID for the grid
             grid_id = datetime.now().strftime('%Y%m%d%H%M%S')
             grid_data['id'] = grid_id
@@ -62,6 +62,9 @@ def save_grid():
         return jsonify({
             'success': True, 
             'grid_id': grid_id,
+            'grid_name': grid_name,
+            'grid_rows': grid_rows,
+            'grid_cols': grid_cols,
             'message': 'Grid saved successfully'
         })
     
@@ -92,7 +95,7 @@ def load_grid(grid_id):
     
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
-
+'''
 @app.route('/grid/<grid_id>')
 def view_grid(grid_id):
     """Render page with existing grid loaded"""
@@ -125,6 +128,7 @@ def view_grid(grid_id):
     except Exception as e:
         print(f"Error loading grid: {e}")
         return redirect(url_for('index'))
+'''
 
 def get_saved_grids():
     """Get list of all saved grids for dropdown"""
@@ -152,6 +156,7 @@ def get_saved_grids():
     grids.sort(key=lambda x: x.get('updated_at', ''), reverse=True)
     return grids
 
+    
 @app.route('/delete_grid/<grid_id>', methods=['POST'])
 def delete_grid(grid_id):
     """Delete a saved grid"""

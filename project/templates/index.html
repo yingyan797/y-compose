@@ -85,7 +85,6 @@
         
         button {
             padding: 5px 10px;
-            margin: 0 5px;
             background-color: #4CAF50;
             color: white;
             border: none;
@@ -207,15 +206,16 @@
 <body>
     <h2 style="border-bottom: dashed; background-color: azure;">Terrain Editing App | 
         <select id="saved-grids">
-            <option value="">-- Select Saved Grid --</option>
+            <option value="">-- Select from saved grids --</option>
             {% for grid in saved_grids %}
                 <option value="{{ grid.id }}">{{ grid.name }} ({{ grid.rows }}×{{ grid.cols }})</option>
             {% endfor %}
         </select>
         <button id="load-grid">Load Grid</button>
         <button id="delete-grid" style="background-color: lightsalmon;">Delete</button>
+        <span style="font-size: small;"><input type="checkbox" id="save-copy"> Save as copy</span>
         <input type="text" id="grid-name" placeholder="New Grid Name" value="{{ grid_name|default('') }}">
-        <button id="save-selection">Save Grid</button>
+        <button id="save-selection">Save Changes</button>
         <a href="/"> / reset / </a>
     </h2>
     
@@ -239,7 +239,7 @@
         <div class="custom-type-creator">
             <input type="text" id="custom-type-name" placeholder="New Goal Name">
             <input type="color" id="custom-type-color" class="color-picker" value="#3F51B5">
-            <button id="add-custom-type">Add goal</button>
+            <button id="add-custom-type">Add custom goal</button>
         </div>
         <div class="cell-type-tag" data-type="obstacle">
             <div class="cell-type-color" style="background-color: #333;"></div>
@@ -406,6 +406,7 @@
                     if (data.success) {
                         alert('Grid ' + gridId + ' deleted successfully!');
                         savedGridsSelect.remove(savedGridsSelect.selectedIndex)
+                        fileName.innerHTML = "";
                     } else {
                         alert('Error deleting grid selection: ' + data.error);
                     }
@@ -470,8 +471,6 @@
                             
                             // Load cell selections
                             loadCellSelections(data.selected_cells);
-                            
-                            alert('Grid loaded successfully!');
                         } else {
                             alert('Error loading grid: ' + data.error);
                         }
@@ -818,6 +817,8 @@
                 formData.append('grid_rows', gridRowsInput.value);
                 formData.append('grid_cols', gridColsInput.value);
                 formData.append('grid_name', gridNameInput.value || 'Untitled Grid');
+                formData.append('copy', document.getElementById("save-copy").checked);
+                formData.append('grid_id', savedGridsSelect.value);
                 formData.append('selected_cells', JSON.stringify(selectedCells));
                 formData.append('cell_types', JSON.stringify(cellTypes));
                 
@@ -831,12 +832,15 @@
                         alert('Grid selection saved successfully!');
                         if (data.grid_id) {
                             // If this is a new grid, add it to the dropdown
-                            if (!savedGridsSelect.querySelector(`option[value="${data.grid_id}"]`)) {
+                            const entry = savedGridsSelect.querySelector(`option[value="${data.grid_id}"]`);
+                            if (!entry) {
                                 const option = document.createElement('option');
                                 option.value = data.grid_id;
                                 option.textContent = `${gridNameInput.value || 'Untitled Grid'} (${gridRowsInput.value}×${gridColsInput.value})`;
                                 savedGridsSelect.appendChild(option);
                                 fileName.innerHTML = "'"+data.grid_id+".json'";
+                            } else {
+                                entry.innerHTML = data.grid_name + " (" + data.grid_rows + "×" +data.grid_cols + ")";
                             }
                         }
                         if (data.redirect) {

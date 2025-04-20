@@ -1,9 +1,9 @@
 {
-  "grid_name": "2",
+  "grid_name": "2a",
   "grid_rows": 8,
   "grid_cols": 8,
-  "created_at": "2025-04-19T19:38:19.575165",
-  "updated_at": "2025-04-19T19:38:19.575165",
+  "created_at": "2025-04-19T19:40:46.860032",
+  "updated_at": "2025-04-19T19:40:46.860032",
   "selected_cells": [
     {
       "row": 1,
@@ -109,16 +109,6 @@
       "row": 2,
       "col": 1,
       "type": "goal-3"
-    },
-    {
-      "row": 2,
-      "col": 1,
-      "type": "goal-1"
-    },
-    {
-      "row": 3,
-      "col": 1,
-      "type": "goal-1"
     }
   ],
   "cell_types": {
@@ -147,5 +137,5 @@
       "color": "#00BCD4"
     }
   },
-  "id": "20250418220432"
+  "id": "20250419194046"
 }
