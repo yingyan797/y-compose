@@ -1,0 +1,74 @@
+<head>
+    <title>Y-Compose LTL</title>
+    <style>
+        th, td {
+            border: solid skyblue;
+        }
+    </style>
+</head>
+<body>
+    <h2 style="background-color: lightgreen;">Draw LTL to DFA | <a href="/ltl">reset</a> | <a href="/">Home</a></h2>
+    <table style="margin: 10px; border-bottom: dashed; background-color: azure;">
+        <tr><th rowspan="2">Formula</th><td rowspan="2"><textarea id="ifml" rows="4" cols="50"></textarea></td>
+            <th>Initial state</th><td id="initial">...</td></tr>
+        <tr><th>Accepting states</th><td id="accepting">...</td></tr>
+        <tr><th>Save file name</th><td><input type="text" id="fname" value="example" minlength="1">.mona/.dfa 
+            <button id="create">Create DFA ></button></td>
+            <th>Rejecting states</th><td id="rejecting">...</td></tr>
+    </table>
+   
+    <div style="border: dashed; padding-top: 5px;">
+        <b>Transition table</b>
+        <table id="transition"></table>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const submitButton = document.getElementById('create');
+            const transitionTable = document.getElementById('transition');
+
+            submitButton.addEventListener('click', function() {
+                const formData = new FormData();
+                formData.append('formula', document.getElementById("ifml").value);
+                formData.append('fname', document.getElementById("fname").value);
+                fetch('/create_dfa',
+                    {method: 'POST', body: formData}
+                ).then(response => response.json()).then(data => {
+                    if (data.success) {
+                        let trans_html = "";
+                        document.getElementById("initial").innerHTML = data.initial_state;
+                        document.getElementById("accepting").innerHTML = data.accepting_states;
+                        document.getElementById("rejecting").innerHTML = data.rejecting_states;
+                        trans_html += "<tr><th>State from</th><th>State to</th>";
+                        for (let fv of data.free_variables) {
+                            trans_html += "<td>"+fv+"</td>";
+                        }
+                        trans_html += "</tr>";
+                        console.log(1)
+                        for (let entry of data.transitions) {
+                            trans_html += "<tr><td>"+entry[0]+"</td><td>"+entry[2]+"</td>";
+                            for (let c of entry[1]) {
+                                trans_html += "<td style='background-color:";
+                                if (c == 0) {
+                                    trans_html += "lightsalmon";
+                                } else if (c == 1) {
+                                    trans_html += "lightgreen";
+                                } else {
+                                    trans_html += "skyblue";
+                                }
+                                trans_html += "'>"+c+"</td>";
+                            }
+                            trans_html += "</tr>";
+                        }
+                        transitionTable.innerHTML = trans_html;
+                    } else {
+                        alert('Error creating dfa table: ' + data.error);
+                    }
+                }).catch(error => {
+                    console.error('Error:', error);
+                    alert('An error occurred while creating DFA table.');
+                });
+            });
+        })
+    </script>
+</body>

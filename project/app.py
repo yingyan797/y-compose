@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, jsonify, redirect, url_for
-import json
-import os
+import json, os
 from datetime import datetime
+from ltl_util import formula_to_dfa
 
 app = Flask(__name__)
 
@@ -18,6 +18,25 @@ def index():
     # Get list of saved grids
     saved_grids = get_saved_grids()
     return render_template('index.html', saved_grids=saved_grids)
+
+@app.route('/ltl')
+def ltl_formulation():
+    return render_template("ltl.html")
+
+@app.route('/create_dfa', methods=["POST"])
+def create_dfa():
+    """Load grid data from a saved file"""
+    try:
+        ifml = request.form.get("formula")
+        fname = request.form.get("fname")
+        out = formula_to_dfa(ifml, fname, fname)
+        if isinstance(out, dict):
+            res = {'success': True}
+            res.update(out)
+            return jsonify(res)
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
 
 @app.route('/save_grid', methods=['POST'])
 def save_grid():
