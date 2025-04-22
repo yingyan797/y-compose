@@ -1,5 +1,5 @@
-#(a U d);
+#(a U b);
 var2 $ where ~ex1 p where true: p notin $ & p+1 in $;
 allpos $;
-var2 A, D;
-(ex1 v_1: v_1 in $ & 0<=v_1&v_1<=max($) & (v_1 in D) & (all1 v_2: v_2 in $ & 0<=v_2&v_2<v_1 => (v_2 in A)));
+var2 A, B;
+(ex1 v_1: v_1 in $ & 0<=v_1&v_1<=max($) & (v_1 in B) & (all1 v_2: v_2 in $ & 0<=v_2&v_2<v_1 => (v_2 in A)));

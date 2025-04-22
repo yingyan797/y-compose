@@ -1,12 +1,14 @@
 from flask import Flask, render_template, request, jsonify, redirect, url_for
 import json, os
 from datetime import datetime
-from ltl_util import formula_to_dfa
+from ltl_util import formula_to_dfa, parse_dfa
 
 app = Flask(__name__)
 
 # Directory to store saved grids
 GRIDS_DIR = 'project/static/saved_grids'
+MONA_DIR = 'project/static/mona_files'
+DFA_DIR = 'project/static/dfa_files'
 
 # Create directory if it doesn't exist
 if not os.path.exists(GRIDS_DIR):
@@ -21,7 +23,8 @@ def index():
 
 @app.route('/ltl')
 def ltl_formulation():
-    return render_template("ltl.html")
+    files = [fname[:-5] for fname in os.listdir(MONA_DIR)]
+    return render_template("ltl.html", files=files)
 
 @app.route('/create_dfa', methods=["POST"])
 def create_dfa():
@@ -29,7 +32,7 @@ def create_dfa():
     try:
         ifml = request.form.get("formula")
         fname = request.form.get("fname")
-        out = formula_to_dfa(ifml, fname, fname)
+        out = formula_to_dfa(ifml, fname)
         if isinstance(out, dict):
             res = {'success': True}
             res.update(out)
@@ -37,6 +40,18 @@ def create_dfa():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
+@app.route('/load_dfa/<fname>')
+def load_dfa(fname):
+    try:
+        with open(MONA_DIR+f"/{fname}.mona", "r") as f:
+            formula = f.readline().split(";")[0][1:]
+        with open(DFA_DIR+f"/{fname}.dfa", "r") as f:
+            mona_out = f.read()
+    except IOError as e:
+        return jsonify({'success': False, 'error': str(e)})
+    res = {"success": True}
+    res.update(parse_dfa(formula, mona_out))
+    return jsonify(res)
 
 @app.route('/save_grid', methods=['POST'])
 def save_grid():

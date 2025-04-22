@@ -4,28 +4,106 @@
         th, td {
             border: solid skyblue;
         }
+        .column {
+            float: left;
+            width: 50%;
+        }
+
+        /* Clear floats after the columns */
+        .row:after {
+            content: "";
+            display: table;
+            clear: both;
+        }
     </style>
 </head>
 <body>
     <h2 style="background-color: lightgreen;">Draw LTL to DFA | <a href="/ltl">reset</a> | <a href="/">Home</a></h2>
     <table style="margin: 10px; border-bottom: dashed; background-color: azure;">
-        <tr><th rowspan="2">Formula</th><td rowspan="2"><textarea id="ifml" rows="4" cols="50"></textarea></td>
+        <tr><th rowspan="2">Formula</th><td rowspan="2" colspan="3"><textarea id="ifml" rows="4" style="width: 97%;"></textarea></td>
             <th>Initial state</th><td id="initial">...</td></tr>
         <tr><th>Accepting states</th><td id="accepting">...</td></tr>
-        <tr><th>Save file name</th><td><input type="text" id="fname" value="example" minlength="1">.mona/.dfa 
+        <tr><th>Save file</th><td><input type="text" id="fname" value="example" minlength="1"> 
             <button id="create">Create DFA ></button></td>
+            <th>Load file</th><td><select id="fsel">{% for file in files %}
+                    <option value="{{file}}">{{file}}</option>
+                {% endfor %}</select><button id="load">Load DFA</button></td>
             <th>Rejecting states</th><td id="rejecting">...</td></tr>
     </table>
-   
-    <div style="border: dashed; padding-top: 5px;">
-        <b>Transition table</b>
-        <table id="transition"></table>
+    Transition table for: <b id="p_formula"></b> <button id="write">Write back</button>
+    <div class="row" style="border: dashed; padding-top: 5px;">
+        <div class="column">
+            <table id="transition"></table>
+        </div><div class="column">
+            <table id="matrix"></table>
+        </div>
     </div>
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
+            const loadButton = document.getElementById('load');
             const submitButton = document.getElementById('create');
+            const writeButton = document.getElementById('write');
             const transitionTable = document.getElementById('transition');
+
+            function create_table(data) {
+                let trans_html = "";
+                document.getElementById("p_formula").innerHTML = data.formula;
+                document.getElementById("initial").innerHTML = data.initial_state;
+                document.getElementById("accepting").innerHTML = data.accepting_states;
+                document.getElementById("rejecting").innerHTML = data.rejecting_states;
+                trans_html += "<tr><th id='state_f'>State from</th><th id='state_t'>State to</th>";
+                for (let fv of data.free_variables) {
+                    trans_html += "<td>"+fv+"</td>";
+                }
+                trans_html += "</tr>";
+                for (let i=0; i < data.transitions.length; i++) {
+                    const entry = data.transitions[i];
+                    trans_html += "<tr><td id='pair_f_"+entry[0]+"'>"+entry[0]+"</td><td id='pair_t_"+entry[2]+"'>"+entry[2]+"</td>";
+                    for (let c of entry[1]) {
+                        trans_html += "<td style='background-color:";
+                        if (c == 0) {
+                            trans_html += "lightsalmon";
+                        } else if (c == 1) {
+                            trans_html += "lightgreen";
+                        } else {
+                            trans_html += "skyblue";
+                        }
+                        trans_html += "'>"+c+"</td>";
+                    }
+                    trans_html += "</tr>";
+                }
+                transitionTable.innerHTML = trans_html;
+                let matrix_html = "<tr><th>State</th>"
+                for (let i=1; i <= data.matrix.length; i++) {
+                    matrix_html += "<th id='pair_t_"+i+"''>"+i+"</th>";
+                }
+                matrix_html += "</tr>"
+                data.matrix.forEach((row, i) => {
+                    matrix_html += "<tr><th id='pair_f_"+(i+1)+"''>"+(i+1)+"</th>";
+                    for (label of row) {
+                        matrix_html += "<td style='background-color: azure'>"+label+"</td>";
+                    }
+                    matrix_html += "</tr>";
+                })   
+                document.getElementById("matrix").innerHTML = matrix_html;
+
+                for (let c of ['f', 't']) {
+                    const states = document.querySelectorAll("[id^='pair_"+c+"_']");
+                    states.forEach((state, num) => {
+                        state.addEventListener('click', function() {
+                            states.forEach((entry, i) => {
+                                entry.style.backgroundColor = "white";
+                            })
+                            const label = state.innerHTML;
+                            const matching = document.querySelectorAll("[id='pair_"+c+"_"+label+"']");
+                            matching.forEach((entry, i) => {
+                                entry.style.backgroundColor = 'lightgoldenrodyellow';
+                            })
+                        })
+                    });
+                }
+            }
 
             submitButton.addEventListener('click', function() {
                 const formData = new FormData();
@@ -35,32 +113,7 @@
                     {method: 'POST', body: formData}
                 ).then(response => response.json()).then(data => {
                     if (data.success) {
-                        let trans_html = "";
-                        document.getElementById("initial").innerHTML = data.initial_state;
-                        document.getElementById("accepting").innerHTML = data.accepting_states;
-                        document.getElementById("rejecting").innerHTML = data.rejecting_states;
-                        trans_html += "<tr><th>State from</th><th>State to</th>";
-                        for (let fv of data.free_variables) {
-                            trans_html += "<td>"+fv+"</td>";
-                        }
-                        trans_html += "</tr>";
-                        console.log(1)
-                        for (let entry of data.transitions) {
-                            trans_html += "<tr><td>"+entry[0]+"</td><td>"+entry[2]+"</td>";
-                            for (let c of entry[1]) {
-                                trans_html += "<td style='background-color:";
-                                if (c == 0) {
-                                    trans_html += "lightsalmon";
-                                } else if (c == 1) {
-                                    trans_html += "lightgreen";
-                                } else {
-                                    trans_html += "skyblue";
-                                }
-                                trans_html += "'>"+c+"</td>";
-                            }
-                            trans_html += "</tr>";
-                        }
-                        transitionTable.innerHTML = trans_html;
+                        create_table(data);
                     } else {
                         alert('Error creating dfa table: ' + data.error);
                     }
@@ -69,6 +122,27 @@
                     alert('An error occurred while creating DFA table.');
                 });
             });
+
+            loadButton.addEventListener('click', function() {
+                const fname = document.getElementById("fsel").value;
+                fetch(`/load_dfa/${fname}`).then(response => response.json()).then(data => {
+                    if (data.success) {
+                        create_table(data);
+                    } else {
+                        alert('Error creating dfa table: ' + data.error);
+                    }
+                }).catch(error => {
+                    console.error('Error:', error);
+                    alert('An error occurred while creating DFA table.');
+                });
+            });
+
+            writeButton.addEventListener('click', function() {
+                const p_formula = document.getElementById("p_formula").innerHTML;
+                if (p_formula != "") {
+                    document.getElementById("ifml").value = p_formula;
+                }
+            })
         })
     </script>
 </body>

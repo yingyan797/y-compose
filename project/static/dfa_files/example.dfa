@@ -1,5 +1,5 @@
 
-DFA for formula with free variables: A D 
+DFA for formula with free variables: A B 
 Initial state: 0
 Accepting states: 3 
 Rejecting states: 0 1 2 
@@ -15,14 +15,14 @@ State 2: XX -> state 2
 State 3: XX -> state 3
 A counter-example of least length (0) is:
 A               X 
-D               X 
+B               X 
 
 A = {}
-D = {}
+B = {}
 
 A satisfying example of least length (1) is:
 A               X 0
-D               X 1
+B               X 1
 
 A = {}
-D = {0}
+B = {0}

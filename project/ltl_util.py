@@ -1,12 +1,12 @@
 import numpy as np
 import os, subprocess
 from ltlf2dfa.parser.ltlf import LTLfParser
-from ltlf2dfa.ltlf2dfa import output2dot, MonaProgram
+from ltlf2dfa.ltlf2dfa import MonaProgram, ter2symb, simplify_guard, symbols
 
 CDIR = os.getcwd()
 MONA_PATH = os.path.join(CDIR, "refer_code", "mona.exe")
 
-def parse_dfa(dfa_text):
+def parse_dfa(p_formula, dfa_text):
     """
     Parse a DFA description and extract its components.
     
@@ -20,13 +20,18 @@ def parse_dfa(dfa_text):
     """
     lines = dfa_text.strip().split('\n')
     result = {
+        'formula': p_formula,
         'free_variables': [],
         'initial_state': None,
         'accepting_states': set(),
         'rejecting_states': set(),
-        'transitions': []
+        'transitions': [],
+        'matrix': []
     }
-    
+
+    dot_trans = {}
+    free_variables = []
+    min_state, max_state = None, None
     # Process each line
     for line in lines:
         line = line.strip()
@@ -35,6 +40,9 @@ def parse_dfa(dfa_text):
         if line.startswith("DFA for formula with free variables:"):
             var_part = line.split(":", 1)[1].strip()
             result['free_variables'] = var_part.split()
+            free_variables = symbols(
+                tuple(fv.lower() for fv in result["free_variables"])
+            )
         
         # Extract initial state
         elif line.startswith("Initial state:"):
@@ -63,29 +71,51 @@ def parse_dfa(dfa_text):
             state_j = int(target.replace("state", "").strip())
             
             result['transitions'].append((state_i, condition, state_j))
+
+            if free_variables:
+                guard = ter2symb(free_variables, condition)
+            else:
+                guard = ter2symb(free_variables, "X")
+
+            low = min(state_i, state_j)
+            up = max(state_i, state_j)
+            if min_state is None or low < min_state:
+                min_state = low
+            if max_state is None or up > min_state:
+                max_state = up
+        
+            if (state_i, state_j) in dot_trans.keys():
+                dot_trans[(state_i, state_j)].append(guard)
+            else:
+                dot_trans[(state_i, state_j)] = [guard]
+    min_state = max(1, min_state)
+    matrix = [["" for _ in range(min_state, max_state+1)] for _ in range(min_state, max_state+1)]
+    for c, guards in dot_trans.items():
+        simplified_guard = simplify_guard(guards)
+        matrix[c[0]-1][c[1]-1] = str(simplified_guard).lower()
     
+    result["matrix"] = matrix
     return result
 
-def formula_to_dfa(ifml, mona_name, dfa_name, final_graph=False):
+def formula_to_dfa(ifml, file_name):
     parser = LTLfParser()
     formula = parser(ifml)       # returns an LTLfFormula
     prog = MonaProgram(formula).mona_program()
-    ipath = os.path.join(CDIR, "project", "static", "mona_files", f"{mona_name}.mona")
-    opath = os.path.join(CDIR, "project", "static", "dfa_files", f"{dfa_name}.dfa")
+    ipath = os.path.join(CDIR, "project", "static", "mona_files", f"{file_name}.mona")
+    opath = os.path.join(CDIR, "project", "static", "dfa_files", f"{file_name}.dfa")
     try:
         with open(ipath, "w+") as file:
             file.write(prog)
+            p_formula = prog.split(";")[0][1:]
     except IOError:
         print("[ERROR]: Problem opening the mona file!")
     cmd = f'{MONA_PATH} -q -u -w {ipath} > {opath}'
     if os.system(cmd) == 0:
         with open(opath, "r") as f:
             mona_output = f.read()
-        if final_graph:
-            return output2dot(mona_output)
-       
-        return parse_dfa(mona_output)
+
+        return parse_dfa(p_formula, mona_output)
     return False
 
 if __name__ == "__main__":
-    print(formula_to_dfa("(a U b) & (c U d)", "and_until", "and_until"))
+    print(formula_to_dfa("(a U b) & (c U d)", "and_until"))
