@@ -1,0 +1,5 @@
+#G((a -> X(b)));
+var2 $ where ~ex1 p where true: p notin $ & p+1 in $;
+allpos $;
+var2 A, B;
+((ex1 v_1: v_1 in $ & 0<=v_1&v_1<=max($) & false & (all1 v_2: v_2 in $ & 0<=v_2&v_2<=v_1 => (~((v_2 in A)) | (ex1 v_3: v_3 in $ & v_3=v_2+1 & (v_3 in B))))) | (all1 v_2: v_2 in $ & 0<=v_2&v_2<=max($) => (~((v_2 in A)) | (ex1 v_3: v_3 in $ & v_3=v_2+1 & (v_3 in B)))));

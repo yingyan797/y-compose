@@ -1,0 +1,5 @@
+#(a U b U c);
+var2 $ where ~ex1 p where true: p notin $ & p+1 in $;
+allpos $;
+var2 A, B, C;
+(ex1 v_1: v_1 in $ & 0<=v_1&v_1<=max($) & (ex1 v_2: v_2 in $ & v_1<=v_2&v_2<=max($) & (v_2 in C) & (all1 v_3: v_3 in $ & v_1<=v_3&v_3<v_2 => (v_3 in B))) & (all1 v_2: v_2 in $ & 0<=v_2&v_2<v_1 => (v_2 in A)));

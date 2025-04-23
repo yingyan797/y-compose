@@ -1,5 +1,6 @@
 <head>
-    <title>Y-Compose LTL</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Y-Compose LTL</title>
     <style>
         th, td {
             border: solid skyblue;
@@ -14,6 +15,12 @@
             content: "";
             display: table;
             clear: both;
+        }
+
+        .annote:hover {
+            border: dashed;
+            cursor: pointer;
+            font-weight: 700;
         }
     </style>
 </head>
@@ -30,12 +37,13 @@
                 {% endfor %}</select><button id="load">Load DFA</button></td>
             <th>Rejecting states</th><td id="rejecting">...</td></tr>
     </table>
-    Transition table for: <b id="p_formula"></b> <button id="write">Write back</button>
+    Transition table for Formula: <b id="p_formula" style="font-size: large; color: blueviolet;"></b> <button id="write">Write back</button>
     <div class="row" style="border: dashed; padding-top: 5px;">
         <div class="column">
             <table id="transition"></table>
         </div><div class="column">
             <table id="matrix"></table>
+            <button id="clear-color" style="margin-top: 5px;">Clear color annotation</button>
         </div>
     </div>
 
@@ -44,7 +52,7 @@
             const loadButton = document.getElementById('load');
             const submitButton = document.getElementById('create');
             const writeButton = document.getElementById('write');
-            const transitionTable = document.getElementById('transition');
+            const formulaBox = document.getElementById('ifml');
 
             function create_table(data) {
                 let trans_html = "";
@@ -59,7 +67,8 @@
                 trans_html += "</tr>";
                 for (let i=0; i < data.transitions.length; i++) {
                     const entry = data.transitions[i];
-                    trans_html += "<tr><td id='pair_f_"+entry[0]+"'>"+entry[0]+"</td><td id='pair_t_"+entry[2]+"'>"+entry[2]+"</td>";
+                    trans_html += "<tr><td id='pair_f_"+entry[0]+"' class='annote'>"+entry[0]+
+                        "</td><td id='pair_t_"+entry[2]+"' class='annote'>"+entry[2]+"</td>";
                     for (let c of entry[1]) {
                         trans_html += "<td style='background-color:";
                         if (c == 0) {
@@ -73,14 +82,14 @@
                     }
                     trans_html += "</tr>";
                 }
-                transitionTable.innerHTML = trans_html;
+                document.getElementById('transition').innerHTML = trans_html;
                 let matrix_html = "<tr><th>State</th>"
                 for (let i=1; i <= data.matrix.length; i++) {
-                    matrix_html += "<th id='pair_t_"+i+"''>"+i+"</th>";
+                    matrix_html += "<th id='pair_t_"+i+"' class='annote'>"+i+"</th>";
                 }
                 matrix_html += "</tr>"
                 data.matrix.forEach((row, i) => {
-                    matrix_html += "<tr><th id='pair_f_"+(i+1)+"''>"+(i+1)+"</th>";
+                    matrix_html += "<tr><th id='pair_f_"+(i+1)+"' class='annote'>"+(i+1)+"</th>";
                     for (label of row) {
                         matrix_html += "<td style='background-color: azure'>"+label+"</td>";
                     }
@@ -92,28 +101,44 @@
                     const states = document.querySelectorAll("[id^='pair_"+c+"_']");
                     states.forEach((state, num) => {
                         state.addEventListener('click', function() {
-                            states.forEach((entry, i) => {
-                                entry.style.backgroundColor = "white";
-                            })
                             const label = state.innerHTML;
                             const matching = document.querySelectorAll("[id='pair_"+c+"_"+label+"']");
                             matching.forEach((entry, i) => {
-                                entry.style.backgroundColor = 'lightgoldenrodyellow';
+                                if (entry.style.backgroundColor != 'lightgoldenrodyellow') {
+                                    entry.style.backgroundColor = 'lightgoldenrodyellow';
+                                } else {
+                                    entry.style.backgroundColor = 'white';
+                                }
                             })
                         })
                     });
                 }
+
+                document.getElementById("clear-color").addEventListener('click', function() {
+                    document.querySelectorAll("[id^='pair_']").forEach((elem, i) => {
+                        elem.style.backgroundColor = 'white';
+                    });
+                })
             }
 
             submitButton.addEventListener('click', function() {
                 const formData = new FormData();
-                formData.append('formula', document.getElementById("ifml").value);
-                formData.append('fname', document.getElementById("fname").value);
+                const fname = document.getElementById("fname").value;
+                const fsel = document.getElementById("fsel");
+                formData.append('formula', formulaBox.value);
+                formData.append('fname', fname);
                 fetch('/create_dfa',
                     {method: 'POST', body: formData}
                 ).then(response => response.json()).then(data => {
                     if (data.success) {
                         create_table(data);
+                        const entry = fsel.querySelector(`option[value="${fname}"]`);
+                        if (! entry) {
+                            const option = document.createElement('option');
+                            option.value = fname;
+                            option.textContent = fname;
+                            fsel.appendChild(option);
+                        }
                     } else {
                         alert('Error creating dfa table: ' + data.error);
                     }
@@ -138,9 +163,9 @@
             });
 
             writeButton.addEventListener('click', function() {
-                const p_formula = document.getElementById("p_formula").innerHTML;
+                const p_formula = document.getElementById("p_formula").innerText;
                 if (p_formula != "") {
-                    document.getElementById("ifml").value = p_formula;
+                    formulaBox.value = p_formula;
                 }
             })
         })
