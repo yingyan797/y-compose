@@ -7,14 +7,17 @@ from matplotlib.patches import Arrow, Rectangle
 
 
 def task_not(goal: torch.Tensor):
-    return 1 - goal
+    '''Swap positive (1) and negative (2) elements'''
+    neg = torch.where(goal==1, 2, 0)
+    pos = torch.where(goal==2, 1, 0)
+    return torch.maximum(neg, pos)
 def task_and(goals: list[torch.Tensor]):
     return torch.min(torch.stack(goals), dim=0).values
 def task_or(goals: list[torch.Tensor]):
     return torch.max(torch.stack(goals), dim=0).values
 
 class GoalOrientedQLearning:
-    def __init__(self, room:Room, pretrained=False, alpha=0.1, gamma=0.99, epsilon=0.1, fn=""):
+    def __init__(self, room:Room, pretrained=False, alpha=0.1, gamma=0.98, epsilon=0.05, fn=""):
         """
         Initialize the Goal-Oriented Q-Learning algorithm for a 2D reach-avoid navigation task.
         
@@ -29,7 +32,7 @@ class GoalOrientedQLearning:
         self.alpha = alpha
         self.gamma = gamma
         self.epsilon = epsilon
-        self.r_min = -1e8
+        self.r_min = -1e6
         
         # Action space: 8 directions (N, NE, E, SE, S, SW, W, NW)
         self.actions = list(range(8))
@@ -38,7 +41,7 @@ class GoalOrientedQLearning:
         # State is (x, y), subgoal is (x, y)
         self.Q = torch.zeros(room.shape+room.shape+(8,)) if not pretrained else torch.load(f"project/static/{fn}goal-q.pt")
         # Set of visited states that can serve as subgoals
-        self.G = set() if not pretrained else set((goal[0].item(), goal[1].item()) for goal in torch.load(f"project/static/{fn}subgoals.pt"))
+        self.G = set() if not pretrained else set((goal[0], goal[1]) for goal in torch.load(f"project/static/{fn}subgoals.pt"))
         
     def _q_learning_update(self, state, next_state, action, reward, done):
         """Get Q-value for a state-subgoal-action triple."""
@@ -122,18 +125,34 @@ class GoalOrientedQLearning:
         return rewards_per_episode
     
     def q_compose(self, mask):
-        subgoals = [r*self.env.shape[1]+c for r in range(self.env.shape[0]) for c in range(self.env.shape[1]) if mask[r, c] > 0]
-        return self.Q.permute(0,1,4,2,3).reshape(self.env.shape+(8,-1)).index_select(3, torch.tensor(subgoals, dtype=torch.int)).max(dim=3).values
+        all_goals = []
+        reach_goals = []
+        avoid_goals = []
+        for r in range(self.env.shape[0]):
+            for c in range(self.env.shape[1]):
+                si = r*self.env.shape[1]+c
+                if self.env.terrain[r,c] == 2:
+                    all_goals.append(si)
+                if mask[r,c] == 2:
+                    reach_goals.append(si)
+                elif mask[r,c] == 1:
+                    avoid_goals.append(si)
+        q_subgoal = self.Q.permute(0,1,4,2,3).reshape(self.env.shape+(8,-1))
+        q_reach = q_subgoal.index_select(3, torch.tensor(reach_goals, dtype=torch.int))
+
+        if avoid_goals:
+            q_all = q_subgoal.index_select(3, torch.tensor(all_goals, dtype=torch.int))
+            q_compliment = (q_all.max(dim=3).values + q_all.min(dim=3).values).unsqueeze(-1)
+            q_avoid = q_compliment - q_subgoal.index_select(3, torch.tensor(avoid_goals, dtype=torch.int))
+            q_reach = torch.cat((q_reach, q_avoid), -1)
+        return q_reach.max(dim=3).values
 
     def visualize_policy_with_arrows(self, mask, fn="policy"):
         """
         Visualize a policy grid using directional arrows.
         
         Args:
-            policy_grid: An n x n numpy array where each cell contains an integer 0-7 representing a direction
-            goal: Tuple (x, y) indicating the goal position
-            obstacles: Set of (x, y) tuples representing obstacle positions
-            danger_zones: Set of (x, y) tuples representing danger zone positions
+            
         """
         policy = self.q_compose(mask).max(2)
         policy_grid = policy.indices.numpy()
@@ -171,6 +190,7 @@ class GoalOrientedQLearning:
         
         # Define colors for different elements
         goal_color = 'green'
+        avoid_color = 'pink'
         terminal_color = 'yellow'
         obstacle_color = 'black'
         for x in range(policy_grid.shape[1]):
@@ -178,8 +198,10 @@ class GoalOrientedQLearning:
                 if self.env.terrain[y,x] == 0:
                     ax.add_patch(Rectangle((x-0.5, y-0.5), 1, 1, facecolor=obstacle_color, alpha=0.7))
                     continue
-                elif mask[y][x] > 0:
+                elif mask[y][x] == 2:
                     ax.add_patch(Rectangle((x-0.5, y-0.5), 1, 1, facecolor=goal_color, alpha=0.7))
+                elif mask[y][x] == 1:
+                    ax.add_patch(Rectangle((x-0.5, y-0.5), 1, 1, facecolor=avoid_color, alpha=0.7))
                 elif self.env.terrain[y,x] == 2:
                     ax.add_patch(Rectangle((x-0.5, y-0.5), 1, 1, facecolor=terminal_color, alpha=0.7))
                 
@@ -209,76 +231,41 @@ class GoalOrientedQLearning:
         plt.tight_layout()
         plt.savefig(f"project/static/{fn}.png")
     
-    def test_policy(self, start_state=None, max_steps=200):
+    def test_policy(self, mask, start_state=None, max_steps=200):
         """Test the learned policy from a given start state."""
-        if start_state is None:
-            start_state = (0, 0)  # Default to bottom-left corner
         
-        state = start_state
-        path = [state]
+        self.env.start(start_state, None)
         total_reward = 0
         steps = 0
-        
-        while not self.is_terminal(state) and steps < max_steps:
-            action = self.select_action(state)
-            next_state, reward, done = self.step(state, action)
+        while steps < max_steps:
+            action = self.select_action(self.env.loc)
+            next_state, reward, done = self.env.step(action, True)
             total_reward += reward
-            state = next_state
-            path.append(state)
             steps += 1
             
-            if done:
+            if mask[self.env.loc[0], self.env.loc[1]] > 0:
+                print(f"Reached goal position {self.env.loc}")
                 break
         
-        print(f"Test completed: {len(path)} steps, Total reward: {total_reward:.2f}")
-        print(f"Reached goal: {state == self.goal_state}")
-        
-        # Visualize the path
-        x_coords = [p[0] for p in path]
-        y_coords = [p[1] for p in path]
-        
-        plt.figure(figsize=(10, 10))
-        plt.plot(y_coords, x_coords, 'b-', linewidth=2)
-        plt.plot(y_coords, x_coords, 'bo', markersize=6)
-        plt.plot(start_state[1], start_state[0], 'go', markersize=12)
-        plt.plot(self.goal_state[1], self.goal_state[0], 'r*', markersize=15)
-        
-        # Mark obstacles and danger zones
-        for x, y in self.obstacles:
-            plt.plot(y, x, 'ks', markersize=10)
-        
-        for x, y in self.danger_zones:
-            plt.plot(y, x, 'rx', markersize=6, alpha=0.3)
-        
-        plt.grid(True)
-        plt.xlim(-1, self.grid_size)
-        plt.ylim(-1, self.grid_size)
-        plt.gca().invert_yaxis()  # To match grid coordinates
-        plt.title('Test Path')
-        plt.tight_layout()
-        plt.savefig('test_path.png')
-        plt.show()
-        
-        return path, total_reward
+        print(f"Test completed: {steps} steps, Total reward: {total_reward:.2f}")
+        self.env.visual()
 
 # Example usage
 if __name__ == "__main__":
     # Initialize the environment and agent
     agent = GoalOrientedQLearning(
         room=load_room('20250425142229.json'),
-        pretrained=False,
-        alpha=0.1, 
-        gamma=0.99, 
-        epsilon=0.1, 
+        pretrained=True,
     )
     
     # Train the agent
-    # agent.env.start()
-    rewards = agent.train(num_episodes=801, max_steps_per_episode=100)
-    T = agent.env.goals
-    agent.visualize_policy_with_arrows(task_or([T["goal-1"], T["goal-4"]]), "g1-or-g4")
-    agent.visualize_policy_with_arrows(task_and([T["goal-1"], T["goal-2"]]), "g1-and-g2")
-    
+    agent.env.start()
+    # rewards = agent.train(num_episodes=1801, max_steps_per_episode=30)
+    T = {name: mask*2 for name, mask in agent.env.goals.items()}
+    # agent.visualize_policy_with_arrows(task_or([T["goal-1"], T["goal-4"]]), "g1-or-g4")
+    # agent.visualize_policy_with_arrows(task_and([T["goal-1"], T["goal-2"]]), "g1-and-g2")
+    agent.visualize_policy_with_arrows(task_or([T["goal-1"], task_not(T["goal-2"])]), "g1-or-not-g2")
+    # agent.test_policy(T["goal-1"])
     # # Plot learning curve
     # plt.figure(figsize=(10, 5))
     # plt.plot(rewards)

@@ -2,8 +2,8 @@
   "grid_name": "and_until",
   "grid_rows": 11,
   "grid_cols": 16,
-  "created_at": "2025-04-25T14:22:29.870812",
-  "updated_at": "2025-04-25T14:22:29.870812",
+  "created_at": "2025-04-30T01:12:45.215045",
+  "updated_at": "2025-04-30T01:12:45.215045",
   "selected_cells": [
     {
       "row": 1,
@@ -76,26 +76,6 @@
       "type": "goal-2"
     },
     {
-      "row": 8,
-      "col": 2,
-      "type": "goal-2"
-    },
-    {
-      "row": 8,
-      "col": 3,
-      "type": "goal-2"
-    },
-    {
-      "row": 9,
-      "col": 2,
-      "type": "goal-2"
-    },
-    {
-      "row": 9,
-      "col": 3,
-      "type": "goal-2"
-    },
-    {
       "row": 1,
       "col": 4,
       "type": "goal-2"
@@ -406,33 +386,8 @@
       "type": "obstacle"
     },
     {
-      "row": 0,
-      "col": 13,
-      "type": "goal-2"
-    },
-    {
-      "row": 0,
-      "col": 14,
-      "type": "goal-2"
-    },
-    {
-      "row": 0,
-      "col": 15,
-      "type": "goal-2"
-    },
-    {
       "row": 1,
       "col": 13,
-      "type": "goal-2"
-    },
-    {
-      "row": 1,
-      "col": 14,
-      "type": "goal-2"
-    },
-    {
-      "row": 1,
-      "col": 15,
       "type": "goal-2"
     },
     {
@@ -441,13 +396,18 @@
       "type": "goal-2"
     },
     {
-      "row": 2,
-      "col": 14,
+      "row": 3,
+      "col": 12,
       "type": "goal-2"
     },
     {
-      "row": 2,
-      "col": 15,
+      "row": 3,
+      "col": 13,
+      "type": "goal-2"
+    },
+    {
+      "row": 7,
+      "col": 1,
       "type": "goal-2"
     },
     {
@@ -456,22 +416,12 @@
       "type": "goal-2"
     },
     {
-      "row": 9,
-      "col": 1,
-      "type": "goal-2"
-    },
-    {
-      "row": 10,
-      "col": 1,
-      "type": "goal-2"
-    },
-    {
-      "row": 10,
+      "row": 8,
       "col": 2,
       "type": "goal-2"
     },
     {
-      "row": 10,
+      "row": 8,
       "col": 3,
       "type": "goal-2"
     }

@@ -25,14 +25,16 @@ class Room:
             r += c_step
         canvas = np.minimum(canvas, 255).astype(np.uint8)
         Image.fromarray(np.repeat(np.repeat(canvas, 10, axis=1), 10, axis=0), mode="RGB").resize(self._vis_size).save("project/static/room-goals.png")
-        Image.fromarray(np.repeat(np.repeat(self.terrain.numpy()*100, 10, axis=1), 10, axis=0), mode="L").resize(self._vis_size).save("project/static/room-terrain.png")
+        Image.fromarray(np.repeat(np.repeat(self.terrain.numpy().astype(np.uint8)*100, 10, axis=1), 10, axis=0), mode="L").resize(self._vis_size).save("project/static/room-terrain.png")
 
-    def start(self, restriction=None):
+    def start(self, start_state=None, restriction=None):
         if self.terrain is None:
             masks = [self.base] + [goal*2 for goal in self.goals.values()]
             self.terrain = torch.max(torch.stack(masks), dim=0).values
             self._avail_locs = [(r,c) for r in range(self.terrain.shape[0]) for c in range(self.terrain.shape[1]) if self.base[r, c] == 1]
-        if restriction is not None:
+        if start_state is not None:
+            loc = start_state
+        elif restriction is not None:
             region = [(r,c) for r,c in self._avail_locs if restriction[r,c] > 0]
             loc = torch.Tensor(random.choice(region))
         else:
@@ -99,7 +101,7 @@ def create_room(name):
             locs = [[(0,0), (0,6)], [(0,7), (7,0)], [(5,2), (6,6)], [(0,0),(7,0),(5,2)], [(0,6),(0,7),(6,6)]]
             names = ["beige", "blue", "purple", "square", "circle"]
             for i in range(len(names)):
-                goal = torch.zeros(8,8, dtype=torch.uint8)
+                goal = torch.zeros(8,8, dtype=torch.int8)
                 for loc in locs[i]:
                     goal[loc] = 1
                 room.goals[names[i]] = goal
@@ -120,7 +122,7 @@ def load_room(name):
             room.base[r,c] = 0
         else:
             if goal not in layers:
-                layers[goal] = torch.zeros(h, w, dtype=torch.uint8)
+                layers[goal] = torch.zeros(h, w, dtype=torch.int8)
             layers[goal][r,c] = 1
 
     room.goals = layers
