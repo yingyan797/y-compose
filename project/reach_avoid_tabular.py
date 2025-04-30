@@ -7,7 +7,7 @@ class Room:
         self.shape = (height, width)
         self.base = torch.ones((height, width), dtype=torch.uint8)
         self._vis_size = (width*40, height*40)
-        self._reward_lev = 1000
+        self._reward_lev = 100
         self.goals = dict[str, torch.Tensor]()
         self.terrain = None
         self.loc = torch.zeros(2, dtype=torch.uint8)
@@ -31,7 +31,7 @@ class Room:
         if self.terrain is None:
             masks = [self.base] + [goal*2 for goal in self.goals.values()]
             self.terrain = torch.max(torch.stack(masks), dim=0).values
-            self._avail_locs = [(r,c) for r in range(self.terrain.shape[0]) for c in range(self.terrain.shape[1]) if self.terrain[r, c] == 1]
+            self._avail_locs = [(r,c) for r in range(self.terrain.shape[0]) for c in range(self.terrain.shape[1]) if self.base[r, c] == 1]
         if restriction is not None:
             region = [(r,c) for r,c in self._avail_locs if restriction[r,c] > 0]
             loc = torch.Tensor(random.choice(region))
@@ -128,7 +128,7 @@ def load_room(name):
 
 
 if __name__ == "__main__":
-    room = load_room("20250418222318.json")
+    room = load_room("20250418220432.json")
     # room = create_room("color shape experiment")
     room.start()
     room.visual()

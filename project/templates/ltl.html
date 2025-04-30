@@ -27,7 +27,8 @@
 <body>
     <h2 style="background-color: lightgreen;">Draw LTL to DFA | <a href="/ltl">reset</a> | <a href="/">Home</a></h2>
     <table style="margin: 10px; border-bottom: dashed; background-color: azure;">
-        <tr><th rowspan="2">Formula</th><td rowspan="2" colspan="3"><textarea id="ifml" rows="4" style="width: 97%;"></textarea></td>
+        <tr><th class="annote" id="cfml" rowspan="2">Formula</th><td rowspan="2" colspan="3">
+            <textarea id="ifml" rows="4" style="width: 95%;"></textarea></td>
             <th>Initial state</th><td id="initial">...</td></tr>
         <tr><th>Accepting states</th><td id="accepting">...</td></tr>
         <tr><th>Save file</th><td><input type="text" id="fname" value="example" minlength="1"> 
@@ -37,13 +38,15 @@
                 {% endfor %}</select><button id="load">Load DFA</button></td>
             <th>Rejecting states</th><td id="rejecting">...</td></tr>
     </table>
-    Transition table for Formula: <b id="p_formula" style="font-size: large; color: blueviolet;"></b> <button id="write">Write back</button>
+    Transition table for Formula: <b id="p_formula" style="font-size: large; color: blueviolet;"></b> 
+    <button id="write">Write back</button><button id="copy">Copy</button>
     <div class="row" style="border: dashed; padding-top: 5px;">
         <div class="column">
             <table id="transition"></table>
         </div><div class="column">
             <table id="matrix"></table>
-            <button id="clear-color" style="margin-top: 5px;">Clear color annotation</button>
+            <button id="clear-color" style="margin-top: 5px;">Clear color annotation</button><br>
+            <iframe id="ltlf2dfa" src="http://ltlf2dfa.diag.uniroma1.it/" width="97%" height="500px"></iframe>
         </div>
     </div>
 
@@ -52,7 +55,10 @@
             const loadButton = document.getElementById('load');
             const submitButton = document.getElementById('create');
             const writeButton = document.getElementById('write');
+            const copyButton = document.getElementById('copy');
             const formulaBox = document.getElementById('ifml');
+            const formulaClear = document.getElementById('cfml');
+            const p_formula = document.getElementById("p_formula");
 
             function create_table(data) {
                 let trans_html = "";
@@ -163,10 +169,16 @@
             });
 
             writeButton.addEventListener('click', function() {
-                const p_formula = document.getElementById("p_formula").innerText;
-                if (p_formula != "") {
-                    formulaBox.value = p_formula;
+                if (p_formula.innerHTML != "") {
+                    formulaBox.value = p_formula.innerText;
                 }
+            })
+            copyButton.addEventListener('click', function() {
+                navigator.clipboard.writeText(p_formula.innerText);
+            })
+
+            formulaClear.addEventListener('click', function() {
+                formulaBox.value = "";
             })
         })
     </script>

@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import random
-from reach_avoid_tabular import torch, Room, create_room
+from reach_avoid_tabular import torch, Room, create_room, load_room
 import matplotlib.pyplot as plt
 from matplotlib.patches import Arrow, Rectangle
 
@@ -14,7 +14,7 @@ def task_or(goals: list[torch.Tensor]):
     return torch.max(torch.stack(goals), dim=0).values
 
 class GoalOrientedQLearning:
-    def __init__(self, room:Room, pretrained=False, alpha=0.1, gamma=0.99, epsilon=0.1):
+    def __init__(self, room:Room, pretrained=False, alpha=0.1, gamma=0.99, epsilon=0.1, fn=""):
         """
         Initialize the Goal-Oriented Q-Learning algorithm for a 2D reach-avoid navigation task.
         
@@ -36,17 +36,33 @@ class GoalOrientedQLearning:
         
         # Q-table: state, subgoal, action -> value
         # State is (x, y), subgoal is (x, y)
-        self.Q = torch.zeros(room.shape+room.shape+(8,)) if not pretrained else torch.load("project/static/goal-q.pt")
+        self.Q = torch.zeros(room.shape+room.shape+(8,)) if not pretrained else torch.load(f"project/static/{fn}goal-q.pt")
         # Set of visited states that can serve as subgoals
-        self.G = set()
+        self.G = set() if not pretrained else set((goal[0].item(), goal[1].item()) for goal in torch.load(f"project/static/{fn}subgoals.pt"))
         
-    def get_q_value(self, state, subgoal, action):
+    def _q_learning_update(self, state, next_state, action, reward, done):
         """Get Q-value for a state-subgoal-action triple."""
-        return self.Q[state[0], state[1], subgoal[0], subgoal[1], action].item()
-    
-    def update_q_value(self, state, subgoal, action, value):
-        """Update Q-value for a state-subgoal-action triple."""
-        self.Q[state[0], state[1], subgoal[0], subgoal[1], action] = value
+
+        subgoals = torch.tensor(list(self.G), dtype=int)
+        sx, sy = tuple(state[i].expand(subgoals.shape[0]) for i in range(2))
+        action = torch.tensor(action, dtype=int).expand(subgoals.shape[0])
+        nx, ny = tuple(next_state[i].expand(subgoals.shape[0]) for i in range(2))
+
+        goal_neq = []
+        for i in range(subgoals.shape[0]):
+            if not torch.equal(next_state, subgoals[i]):
+                goal_neq.append(i)
+        sub_q = self.Q[sx, sy, subgoals[:, 0], subgoals[:, 1], action]
+
+        if done > 0:
+            delta = torch.tensor(reward) - sub_q
+            delta[goal_neq] = self.r_min
+        else:
+            max_next_q = torch.max(self.Q[nx, ny, subgoals[:, 0], subgoals[:, 1]])
+            delta = reward + self.gamma * max_next_q - sub_q
+
+        new_q = sub_q + self.alpha * delta
+        self.Q[sx, sy, subgoals[:, 0], subgoals[:, 1], action] = new_q
     
     def select_action(self, state):
         """Select an action using epsilon-greedy policy."""
@@ -54,22 +70,23 @@ class GoalOrientedQLearning:
             return random.choice(self.actions)
         
         # Choose the best action based on current subgoals
+        subgoals = torch.tensor(list(self.G), dtype=int)
+        sx, sy = tuple(state[i].expand(subgoals.shape[0]) for i in range(2))
+        qs = self.Q[sx, sy, subgoals[:, 0], subgoals[:, 1]]
+        max_av = torch.max(qs, 0)
         action_values = {}
-        for action in self.actions:
-            max_q_value = float('-inf')
-            for subgoal in self.G:
-                q_value = self.get_q_value(state, subgoal, action)
-                if q_value > max_q_value:
-                    max_q_value = q_value
-            
-            if max_q_value not in action_values:
-                action_values[max_q_value] = [action]
+        for a in self.actions:
+            if max_av.values[a] not in action_values:
+                action_values[max_av.values[a]] = [a]
             else:
-                action_values[max_q_value].append(action)
+                action_values[max_av.values[a]].append(a)
+
         best_actions = action_values[max(action_values.keys())]
-        return best_actions[0] if len(best_actions) == 1 else random.choice(best_actions)
-    
-    def train(self, num_episodes=1000, max_steps_per_episode=1000, fn="goal-q"):
+        if len(best_actions) == 1:
+            return best_actions[0]
+        return random.choice(best_actions)
+        
+    def train(self, num_episodes=1000, max_steps_per_episode=100, fn=""):
         """Train the agent using Goal-Oriented Q-Learning."""
         rewards_per_episode = []
         
@@ -86,33 +103,21 @@ class GoalOrientedQLearning:
                 episode_reward += reward
                 
                 # Update Q-values for each subgoal
-                for subgoal in self.G:
-                    if done > 0:
-                        if not torch.equal(next_state, subgoal):
-                            delta = self.r_min
-                        else:
-                            delta = reward - self.get_q_value(state, subgoal, action)
-                    else:
-                        # Calculate maximum Q-value for the next state and this subgoal
-                        max_next_q = max([self.get_q_value(next_state, subgoal, a) for a in self.actions], default=0)
-                        delta = reward + self.gamma * max_next_q - self.get_q_value(state, subgoal, action)
-                    
-                    # Update Q-value
-                    new_q = self.get_q_value(state, subgoal, action) + self.alpha * delta
-                    self.update_q_value(state, subgoal, action, new_q)
+                if self.G:
+                    self._q_learning_update(state, next_state, action, reward, done)
                 
                 state = next_state
                 steps += 1
                 
                 if done > 0:
                     # Add the current state to the set of subgoals
-                    self.G.add(state)
-                    break
+                    self.G.add((state[0].item(), state[1].item()))
 
             rewards_per_episode.append(episode_reward)
-            if episode % 20 == 0:
-                print(f"Episode {episode}, status {done}|{steps}|{state}, Avg Reward: {np.mean(rewards_per_episode[-100:]):.2f}")
-                torch.save(self.Q, f"project/static/{fn}.pt")
+            if episode % 100 == 0:
+                print(f"Episode {episode}, num goals {len(self.G)}, Avg Reward: {np.mean(rewards_per_episode[-100:]):.2f}")
+                torch.save(self.Q, f"project/static/{fn}goal-q.pt")
+                torch.save(self.G, f"project/static/{fn}subgoals.pt")
         
         return rewards_per_episode
     
@@ -260,19 +265,19 @@ class GoalOrientedQLearning:
 if __name__ == "__main__":
     # Initialize the environment and agent
     agent = GoalOrientedQLearning(
-        room=create_room("color shape experiment"),
-        pretrained=True,
+        room=load_room('20250425142229.json'),
+        pretrained=False,
         alpha=0.1, 
         gamma=0.99, 
         epsilon=0.1, 
     )
     
     # Train the agent
-    agent.env.start()
-    # rewards = agent.train(num_episodes=400, max_steps_per_episode=50)
+    # agent.env.start()
+    rewards = agent.train(num_episodes=801, max_steps_per_episode=100)
     T = agent.env.goals
-    agent.visualize_policy_with_arrows(task_or([T["blue"], T["purple"]]), "blue-or-purple")
-    agent.visualize_policy_with_arrows(task_and([T["beige"], T["square"]]), "beige-square")
+    agent.visualize_policy_with_arrows(task_or([T["goal-1"], T["goal-4"]]), "g1-or-g4")
+    agent.visualize_policy_with_arrows(task_and([T["goal-1"], T["goal-2"]]), "g1-and-g2")
     
     # # Plot learning curve
     # plt.figure(figsize=(10, 5))
