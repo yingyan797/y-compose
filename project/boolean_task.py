@@ -5,17 +5,6 @@ from reach_avoid_tabular import torch, Room, create_room, load_room
 import matplotlib.pyplot as plt
 from matplotlib.patches import Arrow, Rectangle
 
-
-def task_not(goal: torch.Tensor):
-    '''Swap positive (1) and negative (2) elements'''
-    neg = torch.where(goal==1, 2, 0)
-    pos = torch.where(goal==2, 1, 0)
-    return torch.maximum(neg, pos)
-def task_and(goals: list[torch.Tensor]):
-    return torch.min(torch.stack(goals), dim=0).values
-def task_or(goals: list[torch.Tensor]):
-    return torch.max(torch.stack(goals), dim=0).values
-
 class GoalOrientedQLearning:
     def __init__(self, room:Room, pretrained=False, alpha=0.1, gamma=0.98, epsilon=0.05, fn=""):
         """
@@ -124,28 +113,72 @@ class GoalOrientedQLearning:
         
         return rewards_per_episode
     
+    def parse_compose(self, instr:str):
+        full_goals = torch.where(self.env.terrain==2, 1, 0)
+        def task_and(masks):
+            masks = torch.stack(masks)
+            return torch.min(masks, dim=0).values
+        def task_or(masks):
+            masks = torch.stack(masks)
+            return torch.min(masks, dim=0).values
+        def task_not(mask):
+            neg = 1-mask
+            return torch.minimum(neg, full_goals)
+        comp_functions = {"and": task_and, "or": task_or, "not": task_not}
+        def parse_expr(expression:str) -> torch.Tensor:
+            if expression.startswith("'") and expression.endswith("'"):
+                return self.env.goals[expression[1:-1]]
+        
+            # Check for not, and, or operations
+            for op in ["not", "and", "or"]:
+                if expression.startswith(op + "(") and expression.endswith(")"):
+                    # Extract the content inside the parentheses
+                    content = expression[len(op)+1:-1]
+                    
+                    # For "not", we expect only one argument
+                    if op == "not":
+                        return task_not(parse_expr(content))
+                    
+                    # For "and" and "or", we split the arguments by comma
+                    # but we need to handle nested expressions correctly
+                    args = []
+                    current_arg = ""
+                    paren_level = 0
+                    
+                    for char in content:
+                        if char == '(' and (current_arg.endswith("not") or 
+                                        current_arg.endswith("and") or 
+                                        current_arg.endswith("or")):
+                            current_arg += char
+                            paren_level += 1
+                        elif char == '(':
+                            current_arg += char
+                            paren_level += 1
+                        elif char == ')':
+                            current_arg += char
+                            paren_level -= 1
+                        elif char == ',' and paren_level == 0:
+                            args.append(current_arg.strip())
+                            current_arg = ""
+                        else:
+                            current_arg += char
+                    
+                    if current_arg.strip():
+                        args.append(current_arg.strip())
+                    
+                    # Parse each argument recursively
+                    return comp_functions[op]([parse_expr(arg) for arg in args])
+            raise SyntaxError("Not recognizable compose instructions")
+        
+        return parse_expr(instr)
+            
     def q_compose(self, mask):
-        all_goals = []
-        reach_goals = []
-        avoid_goals = []
-        for r in range(self.env.shape[0]):
-            for c in range(self.env.shape[1]):
-                si = r*self.env.shape[1]+c
-                if self.env.terrain[r,c] == 2:
-                    all_goals.append(si)
-                if mask[r,c] == 2:
-                    reach_goals.append(si)
-                elif mask[r,c] == 1:
-                    avoid_goals.append(si)
-        q_subgoal = self.Q.permute(0,1,4,2,3).reshape(self.env.shape+(8,-1))
-        q_reach = q_subgoal.index_select(3, torch.tensor(reach_goals, dtype=torch.int))
-
-        if avoid_goals:
-            q_all = q_subgoal.index_select(3, torch.tensor(all_goals, dtype=torch.int))
-            q_compliment = (q_all.max(dim=3).values + q_all.min(dim=3).values).unsqueeze(-1)
-            q_avoid = q_compliment - q_subgoal.index_select(3, torch.tensor(avoid_goals, dtype=torch.int))
-            q_reach = torch.cat((q_reach, q_avoid), -1)
-        return q_reach.max(dim=3).values
+        all_goals = torch.IntTensor([r*self.env.shape[1]+c 
+                                     for r in range(self.env.shape[0]) 
+                                     for c in range(self.env.shape[1]) 
+                                     if mask[r,c] > 0])
+        q_subgoal = self.Q.permute(0,1,4,2,3).reshape(self.env.shape+(8,-1)).index_select(3, all_goals)
+        return q_subgoal.max(dim=3).values
 
     def visualize_policy_with_arrows(self, mask, fn="policy"):
         """
@@ -189,8 +222,7 @@ class GoalOrientedQLearning:
         }
         
         # Define colors for different elements
-        goal_color = 'green'
-        avoid_color = 'pink'
+        goal_color = 'lightgreen'
         terminal_color = 'yellow'
         obstacle_color = 'black'
         for x in range(policy_grid.shape[1]):
@@ -198,10 +230,8 @@ class GoalOrientedQLearning:
                 if self.env.terrain[y,x] == 0:
                     ax.add_patch(Rectangle((x-0.5, y-0.5), 1, 1, facecolor=obstacle_color, alpha=0.7))
                     continue
-                elif mask[y][x] == 2:
+                elif mask[y][x] > 0:
                     ax.add_patch(Rectangle((x-0.5, y-0.5), 1, 1, facecolor=goal_color, alpha=0.7))
-                elif mask[y][x] == 1:
-                    ax.add_patch(Rectangle((x-0.5, y-0.5), 1, 1, facecolor=avoid_color, alpha=0.7))
                 elif self.env.terrain[y,x] == 2:
                     ax.add_patch(Rectangle((x-0.5, y-0.5), 1, 1, facecolor=terminal_color, alpha=0.7))
                 
@@ -261,10 +291,8 @@ if __name__ == "__main__":
     # Train the agent
     agent.env.start()
     # rewards = agent.train(num_episodes=1801, max_steps_per_episode=30)
-    T = {name: mask*2 for name, mask in agent.env.goals.items()}
-    # agent.visualize_policy_with_arrows(task_or([T["goal-1"], T["goal-4"]]), "g1-or-g4")
-    # agent.visualize_policy_with_arrows(task_and([T["goal-1"], T["goal-2"]]), "g1-and-g2")
-    agent.visualize_policy_with_arrows(task_or([T["goal-1"], task_not(T["goal-2"])]), "g1-or-not-g2")
+    mask = agent.parse_compose("not(and('goal-1', 'goal-2'))")
+    agent.visualize_policy_with_arrows(mask, "not-(g1 and g2)")
     # agent.test_policy(T["goal-1"])
     # # Plot learning curve
     # plt.figure(figsize=(10, 5))
