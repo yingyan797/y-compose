@@ -12,12 +12,10 @@ class Room:
         self.terrain = None
         self.loc = torch.zeros(2, dtype=torch.uint8)
 
-    def visual(self):
+    def visual(self, animate=True):
         c_step = int(255 / (len(self.goals)-1)) if len(self.goals) > 1 else 0
         canvas = torch.unsqueeze(self.base, 2).repeat(1,1,3).numpy().astype(int)*75
         canvas[:, :, :2] = 0
-        for loc in self._trace:
-            canvas[loc[0], loc[1]] = torch.tensor([0, 200, 200])
         r = 0
         for goal in self.goals.values():
             canvas[:, :, 0] += goal.numpy() * r
@@ -26,6 +24,14 @@ class Room:
         canvas = np.minimum(canvas, 255).astype(np.uint8)
         Image.fromarray(np.repeat(np.repeat(canvas, 10, axis=1), 10, axis=0), mode="RGB").resize(self._vis_size).save("project/static/room-goals.png")
         Image.fromarray(np.repeat(np.repeat(self.terrain.numpy().astype(np.uint8)*100, 10, axis=1), 10, axis=0), mode="L").resize(self._vis_size).save("project/static/room-terrain.png")
+        if animate and len(self._trace) > 1:
+            frames = []
+            for loc in self._trace:
+                frame = np.copy(canvas)
+                frame[loc[0], loc[1]] = [0, 200, 200]
+                frames.append(Image.fromarray(np.repeat(np.repeat(frame, 10, axis=1), 10, axis=0)))
+            frames[0].save("project/static/trace-animate.gif", save_all=True, append_images=frames[1:])
+            
 
     def start(self, start_state=None, restriction=None):
         if self.terrain is None:
@@ -33,14 +39,14 @@ class Room:
             self.terrain = torch.max(torch.stack(masks), dim=0).values
             self._avail_locs = [(r,c) for r in range(self.terrain.shape[0]) for c in range(self.terrain.shape[1]) if self.base[r, c] == 1]
         if start_state is not None:
-            loc = start_state
+            loc = torch.IntTensor(start_state)
         elif restriction is not None:
             region = [(r,c) for r,c in self._avail_locs if restriction[r,c] > 0]
-            loc = torch.Tensor(random.choice(region))
+            loc = torch.IntTensor(random.choice(region))
         else:
-            loc = torch.Tensor(random.choice(self._avail_locs))
+            loc = torch.IntTensor(random.choice(self._avail_locs))
 
-        self.loc = loc.to(dtype=torch.int)
+        self.loc = loc
         self._trace = [self.loc]
         return self.loc
 

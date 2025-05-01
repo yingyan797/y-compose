@@ -56,13 +56,14 @@ class GoalOrientedQLearning:
         new_q = sub_q + self.alpha * delta
         self.Q[sx, sy, subgoals[:, 0], subgoals[:, 1], action] = new_q
     
-    def select_action(self, state):
+    def select_action(self, state, mask=None):
         """Select an action using epsilon-greedy policy."""
         if not self.G or random.random() < self.epsilon:
             return random.choice(self.actions)
         
         # Choose the best action based on current subgoals
-        subgoals = torch.tensor(list(self.G), dtype=int)
+        if mask is None:
+            subgoals = torch.IntTensor(list(self.G))
         sx, sy = tuple(state[i].expand(subgoals.shape[0]) for i in range(2))
         qs = self.Q[sx, sy, subgoals[:, 0], subgoals[:, 1]]
         max_av = torch.max(qs, 0)
@@ -259,16 +260,19 @@ class GoalOrientedQLearning:
         ax.set_title('Policy Visualization with Direction Arrows')
         
         plt.tight_layout()
-        plt.savefig(f"project/static/{fn}.png")
+        plt.savefig(f"project/static/policy/{fn}.png")
     
     def test_policy(self, mask, start_state=None, max_steps=200):
         """Test the learned policy from a given start state."""
-        
         self.env.start(start_state, None)
         total_reward = 0
         steps = 0
+        policy = self.q_compose(mask).max(2).indices
         while steps < max_steps:
-            action = self.select_action(self.env.loc)
+            if random.random() < self.epsilon*2:
+                action = random.choice(self.actions)
+            else:
+                action = policy[self.env.loc[0], self.env.loc[1]]
             next_state, reward, done = self.env.step(action, True)
             total_reward += reward
             steps += 1
@@ -291,9 +295,10 @@ if __name__ == "__main__":
     # Train the agent
     agent.env.start()
     # rewards = agent.train(num_episodes=1801, max_steps_per_episode=30)
-    mask = agent.parse_compose("not(and('goal-1', 'goal-2'))")
-    agent.visualize_policy_with_arrows(mask, "not-(g1 and g2)")
-    # agent.test_policy(T["goal-1"])
+    mask = agent.parse_compose("and(not('goal-2'), 'goal-1')")
+    # mask = agent.parse_compose("not(and('goal-1', 'goal-2'))")
+    agent.visualize_policy_with_arrows(mask, "g1 and not-g2")
+    agent.test_policy(mask, [10,0])
     # # Plot learning curve
     # plt.figure(figsize=(10, 5))
     # plt.plot(rewards)
