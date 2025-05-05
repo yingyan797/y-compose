@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Arrow, Rectangle
 
 class GoalOrientedQLearning:
-    def __init__(self, room:Room, pretrained=False, alpha=0.1, gamma=0.98, epsilon=0.05, fn=""):
+    def __init__(self, room:Room, pretrained=False, alpha=0.1, gamma=0.98, epsilon=0.1, fn=""):
         """
         Initialize the Goal-Oriented Q-Learning algorithm for a 2D reach-avoid navigation task.
         
@@ -21,7 +21,7 @@ class GoalOrientedQLearning:
         self.alpha = alpha
         self.gamma = gamma
         self.epsilon = epsilon
-        self.r_min = -1e6
+        self.r_min = -1e8
         
         # Action space: 8 directions (N, NE, E, SE, S, SW, W, NW)
         self.actions = list(range(8))
@@ -269,7 +269,7 @@ class GoalOrientedQLearning:
         steps = 0
         policy = self.q_compose(mask).max(2).indices
         while steps < max_steps:
-            if random.random() < self.epsilon*2:
+            if random.random() < self.epsilon:
                 action = random.choice(self.actions)
             else:
                 action = policy[self.env.loc[0], self.env.loc[1]]
@@ -294,11 +294,11 @@ if __name__ == "__main__":
     
     # Train the agent
     agent.env.start()
-    # rewards = agent.train(num_episodes=1801, max_steps_per_episode=30)
-    mask = agent.parse_compose("and(not('goal-2'), 'goal-1')")
-    # mask = agent.parse_compose("not(and('goal-1', 'goal-2'))")
-    agent.visualize_policy_with_arrows(mask, "g1 and not-g2")
-    agent.test_policy(mask, [10,0])
+    # rewards = agent.train(num_episodes=401, max_steps_per_episode=100)
+    # mask = agent.parse_compose("and(not('goal-2'), 'goal-1')")
+    mask = agent.parse_compose("not(and('goal-1', 'goal-2'))")
+    agent.visualize_policy_with_arrows(mask, "not-(g1 and g2")
+    agent.test_policy(mask, [8,1])
     # # Plot learning curve
     # plt.figure(figsize=(10, 5))
     # plt.plot(rewards)

@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Y-Compose Grid Terrain</title>
+    <link rel="icon" type="image/x-icon" href="static/logo.png">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        
+        .grid-container {
+            display: flex;
+            justify-content: center;
+            margin: 20px 0;
+        }
+        
+        .grid {
+            border: 2px solid #333;
+            display: inline-grid;
+        }
+        
+        .cell {
+            width: 40px;
+            height: 40px;
+            border: 1px solid #ccc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .cell.obstacle {
+            background-color: #333;
+            color: white;
+        }
+        
+        .cell.goal-1 {
+            background-color: #2196F3;
+            color: white;
+        }
+        
+        .cell.goal-2 {
+            background-color: #FF9800;
+            color: white;
+        }
+        
+        .cell.goal-3 {
+            background-color: #9C27B0;
+            color: white;
+        }
+        
+        .cell.goal-4 {
+            background-color: #E91E63;
+            color: white;
+        }
+        
+        .cell.goal-5 {
+            background-color: #00BCD4;
+            color: white;
+        }
+        
+        .controls {
+            text-align: center;
+            margin: 20px 0;
+        }
+        
+        .selection-mode {
+            margin: 0 10px;
+        }
+        
+        .cell-type-selector {
+            margin: 0 10px;
+        }
+        
+        button {
+            padding: 5px 10px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        button:hover {
+            background-color: #45a049;
+        }
+        
+        button.active {
+            background-color: #2E7D32;
+            outline: 2px solid skyblue;
+        }
+        
+        .size-input {
+            width: 50px;
+            padding: 5px;
+            margin: 0 5px;
+        }
+        
+        .cell-labels {
+            position: absolute;
+            top: 0;
+            right: 0;
+            left: 0;
+            bottom: 0;
+            pointer-events: none;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            align-content: flex-start;
+            padding: 2px;
+        }
+        
+        .cell-label {
+            font-size: 8px;
+            font-weight: bold;
+            background-color: rgba(255, 255, 255, 0.7);
+            color: #000;
+            border-radius: 3px;
+            padding: 1px 2px;
+            margin: 1px;
+        }
+
+        .custom-type-creator {
+            display: flex;
+            align-items: center;
+            margin: 10px;
+        }
+
+        .custom-type-creator input {
+            padding: 5px;
+            margin-right: 5px;
+        }
+
+        .color-picker {
+            margin: 0 5px;
+        }
+
+        .type-action-mode {
+            margin: 0 10px;
+        }
+
+        .cell-types-container {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            margin: 10px 0;
+        }
+
+        .cell-type-tag {
+            display: inline-flex;
+            align-items: center;
+            background-color: #f0f0f0;
+            border-radius: 15px;
+            padding: 5px 10px;
+            margin: 3px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        .cell-type-tag.active {
+            outline: 2px solid #1B5E20;
+        }
+
+        .cell-type-color {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+
+        .cell-type-delete {
+            margin-left: 5px;
+            color: #f44336;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .type-indicator {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            top: 0;
+            transform: translate(-50%, -50%);
+            z-index: 1;
+        }
+        
+        .grid-selection {
+            margin: 20px 0;
+            text-align: center;
+        }
+
+        .canvas-container {
+            position: relative;
+            margin: 20px auto;
+            border: 2px solid #333;
+            width: 700px;
+            height: 400px;
+            display: none;
+        }
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            cursor: crosshair;
+        }
+        
+    </style>
+</head>
+<body>
+    <h2 style="border-bottom: dashed; background-color: azure;">Terrain Editing App | 
+        <a href="/">Grid</a> | <a href="/canvas">Canvas</a> | <a href="/ltl">ltl page</a>
+        <select id="saved-grids">
+            <option value="">-- Select from saved files --</option>
+            {% for trn in saved_files %}
+                <option value="{{ trn.id }}">{{ trn.name }} ({{ trn.rows }}×{{ trn.cols }})</option>
+            {% endfor %}
+        </select>
+        <button id="load-trn">Load Grid</button>
+        <button id="delete-trn" style="background-color: lightsalmon;">Delete</button>
+        <span style="font-size: small;"><input type="checkbox" id="save-copy"> Save as copy</span>
+        <input type="text" id="grid-name" placeholder="New Grid Name" value="{{ grid_name|default('') }}">
+        <button id="save-selection">Save Changes</button>
+    </h2>
+    
+    <div class="controls"> 
+        File: <textarea id="file-name" readonly rows="1" cols="20"></textarea> 
+        <button style="font-size: small; background-color: gray;" onclick="copyToClipboard('file-name')">copy</button> Dimension:
+        <input type="number" id="grid-rows" class="size-input" min="1" max="{{row_max}}" value="{{ grid_rows|default(8) }}">
+        ×
+        <input type="number" id="grid-cols" class="size-input" min="1" max="{{column_max}}" value="{{ grid_cols|default(8) }}">
+        <button id="create-trn">Create new</button>
+        <button id="clear-selection">Clear Selection</button>
+        <span style="border: dashed; padding: 5px;">
+            <button id="single-select" class="active">Single Cell</button>
+            <button id="range-select">Range Selection</button> | 
+            <button id="add-type-mode" class="active">Add Type</button>
+            <button id="remove-type-mode">Remove Type</button>
+        </span>
+    </div>
+    
+    <div class="cell-types-container" id="cell-types-list">
+        <div class="custom-type-creator">
+            <input type="text" id="custom-type-name" placeholder="New Goal Name">
+            <input type="color" id="custom-type-color" class="color-picker" value="#3F51B5">
+            <button id="add-custom-type">Add custom goal</button>
+        </div>
+        <div class="cell-type-tag" data-type="obstacle">
+            <div class="cell-type-color" style="background-color: #333;"></div>
+            <span>Obstacle</span>
+        </div>
+        <div class="cell-type-tag" data-type="goal-1">
+            <div class="cell-type-color" style="background-color: #2196F3;"></div>
+            <span>Goal 1</span>
+        </div>
+        <div class="cell-type-tag" data-type="goal-2">
+            <div class="cell-type-color" style="background-color: #FF9800;"></div>
+            <span>Goal 2</span>
+        </div>
+        <div class="cell-type-tag" data-type="goal-3">
+            <div class="cell-type-color" style="background-color: #9C27B0;"></div>
+            <span>Goal 3</span>
+        </div>
+        <div class="cell-type-tag" data-type="goal-4">
+            <div class="cell-type-color" style="background-color: #E91E63;"></div>
+            <span>Goal 4</span>
+        </div>
+        <div class="cell-type-tag" data-type="goal-5">
+            <div class="cell-type-color" style="background-color: #00BCD4;"></div>
+            <span>Goal 5</span>
+        </div>
+        {% if custom_types %}
+            {% for type_key, type_info in custom_types.items() %}
+                <div class="cell-type-tag" data-type="{{ type_key }}">
+                    <div class="cell-type-color" style="background-color: {{ type_info.color }};"></div>
+                    <span>{{ type_info.name }}</span>
+                    <span class="cell-type-delete">×</span>
+                </div>
+            {% endfor %}
+        {% endif %}
+    </div>
+
+    <div class="grid-container">
+        <div id="grid" class="grid"></div>
+    </div>
+    <div class="canvas-container"></div>
+    <script>
+        function copyToClipboard(elem) {
+            const fileNameElement = document.getElementById(elem);
+            fileNameElement.select();
+            document.execCommand('copy');
+            
+            // Visual feedback
+            const btn = document.querySelector('.copy-btn');
+            const originalText = btn.textContent;
+            btn.textContent = 'Copied!';
+            
+            setTimeout(function() {
+                btn.textContent = originalText;
+            }, 1500);
+        }
+        document.addEventListener('DOMContentLoaded', function() {
+            const gridContainer = document.getElementById('grid');
+            const createGridButton = document.getElementById('create-trn');
+            const saveSelectionButton = document.getElementById('save-selection');
+            const clearSelectionButton = document.getElementById('clear-selection');
+            const gridRowsInput = document.getElementById('grid-rows');
+            const gridColsInput = document.getElementById('grid-cols');
+            const singleSelectButton = document.getElementById('single-select');
+            const rangeSelectButton = document.getElementById('range-select');
+            const addTypeModeButton = document.getElementById('add-type-mode');
+            const removeTypeModeButton = document.getElementById('remove-type-mode');
+            const customTypeNameInput = document.getElementById('custom-type-name');
+            const customTypeColorInput = document.getElementById('custom-type-color');
+            const addCustomTypeButton = document.getElementById('add-custom-type');
+            const cellTypesList = document.getElementById('cell-types-list');
+            const savedGridsSelect = document.getElementById('saved-grids');
+            const loadTrnButton = document.getElementById('load-trn');
+            const delTrnButton = document.getElementById('delete-trn');
+            const gridNameInput = document.getElementById('grid-name');
+            const fileName = document.getElementById("file-name");
+            
+            let selectedCells = [];
+            let isRangeSelectionMode = false;
+            let isAddTypeMode = true;
+            let rangeStart = null;
+            let cellTypes = {
+                'obstacle': { name: 'Obstacle', color: '#333' },
+                'goal-1': { name: 'Goal 1', color: '#2196F3' },
+                'goal-2': { name: 'Goal 2', color: '#FF9800' },
+                'goal-3': { name: 'Goal 3', color: '#9C27B0' },
+                'goal-4': { name: 'Goal 4', color: '#E91E63' },
+                'goal-5': { name: 'Goal 5', color: '#00BCD4' }
+            };
+            
+            // Initialize with any custom types from backend
+            {% if custom_types %}
+                {% for type_key, type_info in custom_types.items() %}
+                    cellTypes['{{ type_key }}'] = { 
+                        name: '{{ type_info.name }}', 
+                        color: '{{ type_info.color }}' 
+                    };
+                    addCellTypeStyle('{{ type_key }}', '{{ type_info.color }}');
+                {% endfor %}
+            {% endif %}
+            
+            let currentCellType = 'obstacle';
+            
+            // Initialize the grid with default size or loaded size
+            let config = {};
+            createTerrain(
+                {{ grid_rows|default(8) }}, 
+                {{ grid_cols|default(8) }}
+            );
+            
+            // Load any existing cell selections from backend
+            {% if selected_cells %}
+                loadCellSelections({{ selected_cells|tojson }});
+            {% endif %}
+
+            // Create grid when button is clicked
+            createGridButton.addEventListener('click', function() {
+                const rows = parseInt(gridRowsInput.value);
+                const cols = parseInt(gridColsInput.value);
+                if (rows >= 1 && rows <= {{row_max}} && cols >= 1 && cols <= {{column_max}}) {
+                    createTerrain(rows, cols);
+                } else {
+                    alert('Please enter grid dimensions between 1|1 and {{row_max}}|{{column_max}}');
+                }
+            });
+
+            // Toggle type action mode
+            addTypeModeButton.addEventListener('click', function() {
+                isAddTypeMode = true;
+                addTypeModeButton.classList.add('active');
+                removeTypeModeButton.classList.remove('active');
+            });
+            
+            removeTypeModeButton.addEventListener('click', function() {
+                isAddTypeMode = false;
+                removeTypeModeButton.classList.add('active');
+                addTypeModeButton.classList.remove('active');
+            });
+            
+            // Load grid button handler
+            delTrnButton.addEventListener('click', function() {
+                const gridId = savedGridsSelect.value;
+                if (!gridId) {
+                    alert('Please select a grid to delete');
+                    return;
+                }
+                
+                fetch(`/delete_grid/${gridId}`, {
+                    method: 'POST',
+                }).then(response => response.json()).then(data => {
+                    if (data.success) {
+                        alert('Grid ' + gridId + ' deleted successfully!');
+                        savedGridsSelect.remove(savedGridsSelect.selectedIndex)
+                        fileName.innerHTML = "";
+                    } else {
+                        alert('Error deleting grid selection: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('An error occurred while saving.');
+                });
+            });
+            loadTrnButton.addEventListener('click', function() {
+                const gridId = savedGridsSelect.value;
+                if (!gridId) {
+                    alert('Please select a grid to load');
+                    return;
+                }
+                
+                fetch(`/load_grid/${gridId}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            // Update grid dimensions inputs
+                            fileName.innerHTML = "'"+data.grid_id+".json'";
+                            gridRowsInput.value = data.grid_rows;
+                            gridColsInput.value = data.grid_cols;
+                            gridNameInput.value = data.grid_name;
+                            
+                            // Create new grid with loaded dimensions
+                            createTerrain(data.grid_rows, data.grid_cols);
+                            
+                            // Clear existing cell types except defaults
+                            document.querySelectorAll('.cell-type-tag').forEach(tag => {
+                                if (tag.dataset.type && tag.dataset.type.startsWith('custom-')) {
+                                    cellTypesList.removeChild(tag);
+                                }
+                            });
+                            
+                            // Reset cell types to defaults
+                            cellTypes = {
+                                'obstacle': { name: 'Obstacle', color: '#333' },
+                                'goal-1': { name: 'Goal 1', color: '#2196F3' },
+                                'goal-2': { name: 'Goal 2', color: '#FF9800' },
+                                'goal-3': { name: 'Goal 3', color: '#9C27B0' },
+                                'goal-4': { name: 'Goal 4', color: '#E91E63' },
+                                'goal-5': { name: 'Goal 5', color: '#00BCD4' }
+                            };
+                            
+                            // Add custom cell types from loaded data
+                            if (data.cell_types) {
+                                for (const [typeKey, typeInfo] of Object.entries(data.cell_types)) {
+                                    if (typeKey.startsWith('custom-')) {
+                                        cellTypes[typeKey] = {
+                                            name: typeInfo.name,
+                                            color: typeInfo.color
+                                        };
+                                        
+                                        // Add to UI
+                                        addCellTypeTag(typeKey, typeInfo.name, typeInfo.color);
+                                        addCellTypeStyle(typeKey, typeInfo.color);
+                                    }
+                                }
+                            }
+                            
+                            // Load cell selections
+                            loadCellSelections(data.selected_cells);
+                        } else {
+                            alert('Error loading grid: ' + data.error);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        alert('An error occurred while loading the grid.');
+                    });
+            });
+
+            // Add custom cell type
+            addCustomTypeButton.addEventListener('click', function() {
+                const typeName = customTypeNameInput.value.trim();
+                const typeColor = customTypeColorInput.value;
+                
+                if (typeName === '') {
+                    alert('Please enter a type name');
+                    return;
+                }
+                
+                // Create a valid key for the type
+                const typeKey = 'custom-' + typeName.toLowerCase().replace(/\s+/g, '-');
+                
+                // Check if this type already exists
+                if (cellTypes[typeKey]) {
+                    alert('A type with this name already exists');
+                    return;
+                }
+                
+                // Add to cell types
+                cellTypes[typeKey] = {
+                    name: typeName,
+                    color: typeColor
+                };
+                
+                // Add to cell types list
+                addCellTypeTag(typeKey, typeName, typeColor);
+                
+                // Clear input
+                customTypeNameInput.value = '';
+                
+                // Add style for the new type
+                addCellTypeStyle(typeKey, typeColor);
+            });
+
+            // Add style for a new cell type
+            function addCellTypeStyle(typeKey, color) {
+                const style = document.createElement('style');
+                style.textContent = `
+                    .cell.${typeKey} {
+                        background-color: ${color};
+                        color: white;
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+            
+            // Add a cell type tag to the UI
+            function addCellTypeTag(typeKey, name, color) {
+                const tagElement = document.createElement('div');
+                tagElement.className = 'cell-type-tag';
+                tagElement.dataset.type = typeKey;
+                
+                const colorIndicator = document.createElement('div');
+                colorIndicator.className = 'cell-type-color';
+                colorIndicator.style.backgroundColor = color;
+                
+                const nameSpan = document.createElement('span');
+                nameSpan.textContent = name;
+                
+                const deleteButton = document.createElement('span');
+                deleteButton.className = 'cell-type-delete';
+                deleteButton.textContent = '×';
+                deleteButton.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    if (confirm(`Delete type "${name}"?`)) {
+                        // Remove the type from all cells
+                        removeCellTypeFromAllCells(typeKey);
+                        
+                        // Remove from types list
+                        delete cellTypes[typeKey];
+                        
+                        // Remove the tag from UI
+                        cellTypesList.removeChild(tagElement);
+                        
+                        // If this was the selected type, select the default
+                        if (currentCellType === typeKey) {
+                            selectCellType('obstacle');
+                        }
+                    }
+                });
+                
+                tagElement.appendChild(colorIndicator);
+                tagElement.appendChild(nameSpan);
+                tagElement.appendChild(deleteButton);
+                
+                // Handle click to select this type
+                tagElement.addEventListener('click', function() {
+                    selectCellType(typeKey);
+                });
+                
+                cellTypesList.appendChild(tagElement);
+            }
+            
+            // Select a cell type
+            function selectCellType(typeKey) {
+                currentCellType = typeKey;
+                
+                // Update UI
+                document.querySelectorAll('.cell-type-tag').forEach(tag => {
+                    if (tag.dataset.type === typeKey) {
+                        tag.classList.add('active');
+                    } else {
+                        tag.classList.remove('active');
+                    }
+                });
+            }
+            
+            // Initialize cell type selection
+            document.querySelectorAll('.cell-type-tag').forEach(tag => {
+                tag.addEventListener('click', function() {
+                    selectCellType(this.dataset.type);
+                });
+            });
+
+{% block content %}{% endblock %}
+
+            // Select obstacle type by default
+            selectCellType('obstacle');
+        });
+        
+    </script>
+
+</body></html>

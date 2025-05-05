@@ -19,7 +19,13 @@ def index():
     """Render the main page with empty grid"""
     # Get list of saved grids
     saved_grids = get_saved_grids()
-    return render_template('index.html', saved_grids=saved_grids)
+    return render_template('index.html', saved_files=saved_grids, row_max=64, column_max=64)
+
+@app.route('/canvas')
+def canvas():
+    saved_canvas = get_saved_canvas()
+    return render_template('canvas.html', saved_files=saved_canvas, row_max=2048, column_max=2048)
+
 
 @app.route('/ltl')
 def ltl_formulation():
@@ -189,6 +195,9 @@ def get_saved_grids():
     # Sort by update time (newest first)
     grids.sort(key=lambda x: x.get('updated_at', ''), reverse=True)
     return grids
+
+def get_saved_canvas():
+    return []
 
     
 @app.route('/delete_grid/<grid_id>', methods=['POST'])

@@ -37,7 +37,7 @@ class Room:
         if self.terrain is None:
             masks = [self.base] + [goal*2 for goal in self.goals.values()]
             self.terrain = torch.max(torch.stack(masks), dim=0).values
-            self._avail_locs = [(r,c) for r in range(self.terrain.shape[0]) for c in range(self.terrain.shape[1]) if self.base[r, c] == 1]
+            self._avail_locs = [(r,c) for r in range(self.terrain.shape[0]) for c in range(self.terrain.shape[1]) if self.terrain[r, c] > 0]
         if start_state is not None:
             loc = torch.IntTensor(start_state)
         elif restriction is not None:

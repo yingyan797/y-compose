@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+
+{% extends "layout.html" %}
+
+{% block content %}
+    function createTerrain(rows, cols) {
+        config = {
+            width: cols,
+            height: rows,
+            layers: [
+                { name: "Red Layer", color: "#ff0000" },
+                { name: "Green Layer", color: "#00ff00" },
+                { name: "Blue Layer", color: "#0000ff" },
+                { name: "Yellow Layer", color: "#ffff00" },
+                { name: "Magenta Layer", color: "#ff00ff" }
+            ],
+            brushSize: 10,
+            eraserSize: 20
+        };    
+    }
+
+    let activeLayerIndex = 0;
+    let isDrawing = false;
+    let lastX = 0;
+    let lastY = 0;
+    let tool = 'brush';
+    let viewMode = 'all';
+
+    // DOM Elements
+    const container = document.querySelector('.canvas-container');
+    const layerList = document.getElementById('layer-list');
+    const colorButtons = document.querySelectorAll('.color-btn');
+    const toolButtons = document.querySelectorAll('.tool-btn');
+    const viewButtons = document.querySelectorAll('.view-btn');
+
+    // Layer objects will store canvas, context, and visibility
+    const layers = [];
+    
+    // Initialize the app
+    function init() {
+        container.style.dislay = 'block';
+        // Create layers (canvases)
+        config.layers.forEach((layer, index) => {
+            createLayer(layer, index);
+        });
+        
+        // Create layer UI in the layer panel
+        createLayerList();
+        
+        // Set up event listeners
+        setupEventListeners();
+        
+        // Update view mode
+        updateViewMode();
+    }
+    
+    // Create a new canvas layer
+    function createLayer(layerInfo, index) {
+        const canvas = document.createElement('canvas');
+        canvas.width = config.width;
+        canvas.height = config.height;
+        canvas.id = `layer-${index}`;
+        canvas.style.zIndex = 100 - index; // Higher layers above lower ones
+        container.appendChild(canvas);
+        
+        const ctx = canvas.getContext('2d');
+        
+        // Set default styles
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.lineWidth = config.brushSize;
+        
+        // Store layer info
+        layers.push({
+            canvas,
+            ctx,
+            visible: true,
+            name: layerInfo.name,
+            color: layerInfo.color
+        });
+    }
+    
+    // Create layer list UI
+    function createLayerList() {
+        layerList.innerHTML = '';
+        
+        layers.forEach((layer, index) => {
+            const layerItem = document.createElement('div');
+            layerItem.className = 'layer-item';
+            layerItem.dataset.index = index;
+            
+            if (index === activeLayerIndex) {
+                layerItem.style.backgroundColor = '#f0f0f0';
+            }
+            
+            layerItem.innerHTML = `
+                <input type="checkbox" class="layer-visibility" ${layer.visible ? 'checked' : ''}>
+                <div class="layer-preview" style="background-color: ${layer.color}"></div>
+                <div class="layer-name">${layer.name}</div>
+            `;
+            
+            layerList.appendChild(layerItem);
+        });
+        
+        // Add event listeners to layer items
+        document.querySelectorAll('.layer-item').forEach(item => {
+            item.addEventListener('click', function(e) {
+                if (e.target.classList.contains('layer-visibility')) return;
+                
+                // Set active layer
+                activeLayerIndex = parseInt(this.dataset.index);
+                updateActiveLayer();
+            });
+        });
+        
+        // Add event listeners to visibility checkboxes
+        document.querySelectorAll('.layer-visibility').forEach(checkbox => {
+            checkbox.addEventListener('change', function() {
+                const layerIndex = parseInt(this.closest('.layer-item').dataset.index);
+                layers[layerIndex].visible = this.checked;
+                layers[layerIndex].canvas.style.display = this.checked ? 'block' : 'none';
+            });
+        });
+    }
+    
+    // Update UI to reflect active layer
+    function updateActiveLayer() {
+        // Update color button selection
+        colorButtons.forEach((btn, index) => {
+            if (index === activeLayerIndex) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        });
+        
+        // Update layer list highlighting
+        document.querySelectorAll('.layer-item').forEach((item, index) => {
+            if (index === activeLayerIndex) {
+                item.style.backgroundColor = '#f0f0f0';
+            } else {
+                item.style.backgroundColor = '';
+            }
+        });
+        
+        // Update view if in current layer mode
+        if (viewMode === 'current') {
+            updateViewMode();
+        }
+    }
+    
+    // Update view mode (all layers or current layer only)
+    function updateViewMode() {
+        if (viewMode === 'all') {
+            layers.forEach((layer, index) => {
+                layer.canvas.style.display = layer.visible ? 'block' : 'none';
+            });
+        } else if (viewMode === 'current') {
+            layers.forEach((layer, index) => {
+                layer.canvas.style.display = (index === activeLayerIndex && layer.visible) ? 'block' : 'none';
+            });
+        }
+    }
+    
+    // Draw functionality
+    function startDrawing(e) {
+        isDrawing = true;
+        [lastX, lastY] = getMousePos(e);
+        
+        // For single dots, draw immediately
+        draw(e);
+    }
+    
+    function stopDrawing() {
+        isDrawing = false;
+    }
+    
+    function draw(e) {
+        if (!isDrawing) return;
+        
+        const ctx = layers[activeLayerIndex].ctx;
+        const [x, y] = getMousePos(e);
+        
+        // Set styles based on tool
+        if (tool === 'brush') {
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.strokeStyle = layers[activeLayerIndex].color;
+            ctx.lineWidth = config.brushSize;
+        } else if (tool === 'eraser') {
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.lineWidth = config.eraserSize;
+        }
+        
+        // Draw line
+        ctx.beginPath();
+        ctx.moveTo(lastX, lastY);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+        
+        // Update last position
+        [lastX, lastY] = [x, y];
+    }
+    
+    // Get mouse position relative to canvas
+    function getMousePos(e) {
+        const rect = container.getBoundingClientRect();
+        return [
+            e.clientX - rect.left,
+            e.clientY - rect.top
+        ];
+    }
+    
+    // Clear the current layer
+    function clearLayer() {
+        const ctx = layers[activeLayerIndex].ctx;
+        ctx.clearRect(0, 0, config.width, config.height);
+    }
+    
+    // Set up event listeners
+    function setupEventListeners() {
+        // Drawing events
+        container.addEventListener('mousedown', startDrawing);
+        container.addEventListener('mousemove', draw);
+        window.addEventListener('mouseup', stopDrawing);
+        
+        // Tool selection
+        document.getElementById('brush').addEventListener('click', () => setTool('brush'));
+        document.getElementById('eraser').addEventListener('click', () => setTool('eraser'));
+        document.getElementById('clear').addEventListener('click', clearLayer);
+        
+        // View mode selection
+        document.getElementById('view-all').addEventListener('click', () => setViewMode('all'));
+        document.getElementById('view-current').addEventListener('click', () => setViewMode('current'));
+        
+        // Color (layer) selection
+        colorButtons.forEach(btn => {
+            btn.addEventListener('click', function() {
+                activeLayerIndex = parseInt(this.dataset.layer);
+                updateActiveLayer();
+            });
+        });
+    }
+    
+    // Set the current tool
+    function setTool(newTool) {
+        tool = newTool;
+        
+        // Update button states
+        toolButtons.forEach(btn => {
+            if (btn.id === newTool) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        });
+    }
+    
+    // Set the view mode
+    function setViewMode(newMode) {
+        viewMode = newMode;
+        
+        // Update button states
+        viewButtons.forEach(btn => {
+            if (btn.id === `view-${newMode}`) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        });
+        
+        updateViewMode();
+    }
+
+    window.onload = init;
+
+{% endblock %}
+<script>
+    function createTerrain(rows, cols) {
+    }
+    
+</script>
+</html>
