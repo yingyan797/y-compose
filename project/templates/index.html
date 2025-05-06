@@ -1,307 +1,720 @@
 <!DOCTYPE html>
 <html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Y-Compose</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        .container {
+            margin: 0 auto;
+            background-color: white;
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        .layer-controls, .grid-controls {
+            background-color: #f8f8f8;
+            padding: 5px;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+        }
+        .canvas-container {
+            position: relative;
+            margin: 5px auto;
+            border: 2px solid #333;
+            background-color: white;
+        }
+        #drawingCanvas {
+            cursor: crosshair;
+            display: block;
+        }
+        .layers-panel {
+            margin-top: 20px;
+            background-color: #f8f8f8;
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+        }
+        .layer-item {
+            display: flex;
+            align-items: center;
+            padding: 5px;
+            margin: 5px 0;
+            background-color: white;
+            border-radius: 3px;
+            border: 1px solid #eee;
+        }
+        .layer-item.active {
+            background-color: #e6f7ff;
+            border-color: #1890ff;
+        }
+        .color-display {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            margin-right: 10px;
+            border: 1px solid #ccc;
+        }
+        .layer-name {
+            flex-grow: 1;
+        }
+        .layer-visibility {
+            margin-right: 10px;
+        }
+        button {
+            background-color: cornflowerblue;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background-color: blueviolet;
+        }
+        button.remove-layer {
+            border: dashed;
+            background-color: lightgoldenrodyellow;
+            color: #333;
+        }
+        button.remove-layer:hover {
+            color: salmon;
+        }
+        input, select {
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        .grid-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+        }
+        .column {
+            float: left;
+            width: 50%;
+        }
 
-{% extends "layout.html" %}
+        /* Clear floats after the columns */
+        .row:after {
+            content: "";
+            display: table;
+            clear: both;
+        }
 
-{% block content %}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="grid-controls"><h3>Y-compose: terrain editing - 
+            <input type="radio" name="drawingMode" value="discrete" checked><label id="modeD" style="color: blueviolet;"> Discrete (Grid) </label>
+            <input type="radio" name="drawingMode" value="continuous"><label id="modeC">Continuous (Free Draw); </label>| 
+            <a href="/ltl">LTL compose</a></h3>
+            <label for="gridRows" id="gridControl">Grid Size: 
+                <input type="number" id="gridRows" min="2" max="50" value="10" style="width: 50px;"> x 
+                <input type="number" id="gridCols" min="2" max="50" value="10" style="width: 50px;">
+                <button id="applyGridBtn">Set Grid</button>
+                <button id="singleRangeBtn">Single cell</button>
+            </label>
+            <label id="canvasControl" style="display: none;">
+                Brush size: <input type="range" id="brushSize" min="1" max="100" value="10" style="height: 4px;">
+                <button id="undo"><-Undo</button>
+                <button id="redo">Redo-></button>
+            </label> | <button id="penEraser">Draw color</button> 
+            <button class="remove-layer" id="clearLayer">Clear layer</button> 
+            <button class="remove-layer" id="clear">Restart</button>
+            Terrain name:<input type="file" style="width: 80px;" id="ipf" oninput="uploadFile()"> 
+            <input type="text" id="fname"> <button id="load">Load</button> <button id="save">Save</button>
+            <button id="copy" style="border: dashed;">Copy</button> 
+            <button id="delete" class="remove-layer">Delete</button> 
+        </div>
+    <div class="row">
+        <div class="column">
+            <div class="canvas-container" style="width: 600px; height: 600px;">
+                <canvas id="drawingCanvas" width="600" height="600"></canvas>
+                <canvas id="gridOverlay" class="grid-overlay" width="600" height="600"></canvas>
+            </div>
+        </div><div class="column">
+
+            <div class="layer-controls">
+                <label for="newLayerName">New Layer: </label>
+                <input type="text" id="newLayerName" placeholder="Layer name">
+                <input type="color" id="newLayerColor" value="#ff0000">
+                <button id="addLayerBtn">Add Layer</button>
+            </div>
+            <div class="layers-panel">
+                <h3>Layers to display ...</h3>
+                <div id="layersList"></div>
+            </div>
+        </div>
+    </div>
+    </div>
+
+    <script>
+        // App state
+        const state = {
+            mode: 'discrete',
+            canvas: {
+                width: 600,
+                height: 600
+            },
+            grid: {
+                rows: 10,
+                cols: 10
+            },
+            layers: [
+                { name: 'obstacle', color: '#030303'},
+                { name: 'goal-1', color: '#FF0000'},
+                { name: 'goal-2', color: '#00FF00'},
+                { name: 'goal-3', color: '#0000FF'},
+                { name: 'goal-4', color: '#FFFF00'},
+                { name: 'goal-5', color: '#FF00FF'}
+            ],
+            activeLayerIndex: 0,
+            isDrawing: false,
+            lastPosition: null,
+            lastCell: null
+        };
+        state.layers.forEach((layer) => {
+            layer.visible = true; 
+            layer.data = {}; 
+            let canvasLayer = document.createElement('canvas');
+            canvasLayer.width = state.canvas.width;
+            canvasLayer.height = state.canvas.height;
+            layer.canvasLayer = canvasLayer;
+            layer.ctxl = canvasLayer.getContext("2d");
+        })
+
+        // DOM elements
+        const gridControl = document.getElementById("gridControl");
+        const canvasControl = document.getElementById("canvasControl");
+        const penEraserBtn = document.getElementById("penEraser");
+        const singleRangeBtn = document.getElementById("singleRangeBtn");
+        const brushSize = document.getElementById("brushSize");
+        const undoBtn = document.getElementById("undo");
+        const redoBtn = document.getElementById("redo");
+        const clearBtn = document.getElementById("clear");
+        const clearLayerBtn = document.getElementById("clearLayer");
+        const fnameBox = document.getElementById("fname");
+        const loadBtn = document.getElementById("load");
+        const delBtn = document.getElementById("delete");
+        const saveBtn = document.getElementById("save");
+
+        const canvas = document.getElementById('drawingCanvas');
+        const ctx = canvas.getContext('2d');
+        const gridOverlay = document.getElementById('gridOverlay');
+        const gridCtx = gridOverlay.getContext('2d');
+        const modeSelect = document.getElementsByName('drawingMode');
+        const modeD = document.getElementById('modeD');
+        const modeC = document.getElementById('modeC');
+        const gridRowsInput = document.getElementById('gridRows');
+        const gridColsInput = document.getElementById('gridCols');
+        const applyGridBtn = document.getElementById('applyGridBtn');
+        const newLayerNameInput = document.getElementById('newLayerName');
+        const newLayerColorInput = document.getElementById('newLayerColor');
+        const addLayerBtn = document.getElementById('addLayerBtn');
+        const layersList = document.getElementById('layersList');
+
+        // Initialize the app
+        function init() {
+            drawGrid();
+            renderLayers();
+            setupEventListeners();
+            redrawCanvas();
+        }
+
+        function uploadFile() {
+            const segs = document.getElementById("ipf").value.split("\\");
+            fnameBox.value = segs[segs.length-1];
+        }
+
+        // Draw grid on overlay
+        function drawGrid() {
+            gridCtx.clearRect(0, 0, state.canvas.width, state.canvas.height);
+            gridCtx.strokeStyle = '#cccccc';
+            gridCtx.lineWidth = 1;
             
-            // Toggle selection mode
-            singleSelectButton.addEventListener('click', function() {
-                isRangeSelectionMode = false;
-                singleSelectButton.classList.add('active');
-                rangeSelectButton.classList.remove('active');
-                rangeStart = null;
-            });
+            const cellWidth = state.canvas.width / state.grid.cols;
+            const cellHeight = state.canvas.height / state.grid.rows;
             
-            rangeSelectButton.addEventListener('click', function() {
-                isRangeSelectionMode = true;
-                rangeSelectButton.classList.add('active');
-                singleSelectButton.classList.remove('active');
-                rangeStart = null;
-            });
+            // Draw vertical lines
+            for (let x = 0; x <= state.canvas.width; x += cellWidth) {
+                gridCtx.beginPath();
+                gridCtx.moveTo(x, 0);
+                gridCtx.lineTo(x, state.canvas.height);
+                gridCtx.stroke();
+            }
             
-            
-            // Load cell selections into the grid
-            function loadCellSelections(cells) {
-                selectedCells = [];
+            // Draw horizontal lines
+            for (let y = 0; y <= state.canvas.height; y += cellHeight) {
+                gridCtx.beginPath();
+                gridCtx.moveTo(0, y);
+                gridCtx.lineTo(state.canvas.width, y);
+                gridCtx.stroke();
+            }
+        }
+
+        // Redraw the entire canvas based on all layers
+        function redrawCanvas() {            
+            // Draw all visible layers
+            ctx.clearRect(0, 0, state.canvas.width, state.canvas.height);
+            state.layers.forEach(layer => {
+                if (!layer.visible) return;
                 
-                // Clear existing selections
-                document.querySelectorAll('.cell').forEach(cell => {
-                    Object.keys(cellTypes).forEach(typeKey => {
-                        cell.classList.remove(typeKey);
-                    });
+                if (state.mode === 'discrete') {
+                    // Draw grid cells
+                    const cellWidth = state.canvas.width / state.grid.cols;
+                    const cellHeight = state.canvas.height / state.grid.rows;
                     
-                    const labelsContainer = cell.querySelector('.cell-labels');
-                    if (labelsContainer) {
-                        labelsContainer.innerHTML = '';
+                    ctx.fillStyle = layer.color;
+                    
+                    for (const key in layer.data) {
+                        const [row, col] = key.split(',').map(Number);
+                        ctx.fillRect(
+                            col * cellWidth, 
+                            row * cellHeight, 
+                            cellWidth, 
+                            cellHeight
+                        );
                     }
-                });
-                
-                // Apply loaded selections
-                cells.forEach(cellData => {
-                    const cell = document.querySelector(`.cell[data-row="${cellData.row}"][data-col="${cellData.col}"]`);
-                    if (cell) {
-                        addCellType(cell, cellData.row, cellData.col, cellData.type);
-                    }
-                });
-            }
-            
-            // Remove a cell type from all cells
-            function removeCellTypeFromAllCells(typeKey) {
-                // Remove class from all cells
-                document.querySelectorAll(`.cell.${typeKey}`).forEach(cell => {
-                    cell.classList.remove(typeKey);
-                });
-                
-                // Remove from selected cells data
-                selectedCells = selectedCells.filter(cell => cell.type !== typeKey);
-                
-                // Remove labels
-                document.querySelectorAll('.cell').forEach(cell => {
-                    updateCellLabels(cell);
-                });
-            }
-            
-            // Create a new grid with given size
-            function createTerrain(rows, cols) {
-                // Clear existing grid
-                gridContainer.innerHTML = '';
-                selectedCells = [];
-                
-                // Set grid template
-                gridContainer.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-                gridContainer.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
-                
-                // Create cells
-                for (let row = 0; row < rows; row++) {
-                    for (let col = 0; col < cols; col++) {
-                        const cell = document.createElement('div');
-                        cell.className = 'cell';
-                        cell.dataset.row = row;
-                        cell.dataset.col = col;
-                        cell.title = `r=${row},c=${col}`;
-                        
-                        // Create container for labels
-                        const labelsContainer = document.createElement('div');
-                        labelsContainer.className = 'cell-labels';
-                        cell.appendChild(labelsContainer);
-                        
-                        // Handle cell click event
-                        cell.addEventListener('click', function() {
-                            const cellRow = parseInt(this.dataset.row);
-                            const cellCol = parseInt(this.dataset.col);
-                            
-                            if (isRangeSelectionMode) {
-                                // Range selection mode
-                                if (rangeStart === null) {
-                                    // First click - set start point
-                                    rangeStart = { row: cellRow, col: cellCol };
-                                    this.classList.add('range-start');
-                                } else {
-                                    // Second click - select the range
-                                    const startRow = Math.min(rangeStart.row, cellRow);
-                                    const endRow = Math.max(rangeStart.row, cellRow);
-                                    const startCol = Math.min(rangeStart.col, cellCol);
-                                    const endCol = Math.max(rangeStart.col, cellCol);
-                                    
-                                    // Apply selection to all cells in range
-                                    selectRange(startRow, endRow, startCol, endCol);
-                                    
-                                    // Remove range start indicator
-                                    document.querySelectorAll('.cell.range-start').forEach(cell => {
-                                        cell.classList.remove('range-start');
-                                    });
-                                    
-                                    // Reset for next range selection
-                                    rangeStart = null;
-                                }
-                            } else {
-                                // Single selection mode
-                                handleCellSelection(this, cellRow, cellCol);
-                            }
-                        });
-                        
-                        gridContainer.appendChild(cell);
-                    }
-                }
-            }
-            
-            // Handle cell selection based on current mode
-            function handleCellSelection(cellElement, row, col) {
-                if (isAddTypeMode) {
-                    addCellType(cellElement, row, col, currentCellType);
                 } else {
-                    removeCellType(cellElement, row, col, currentCellType);
-                }
-            }
-            
-            // Add a type to a cell
-            function addCellType(cellElement, row, col, typeKey) {
-                // Check if this cell already has this type
-                const existingIndex = selectedCells.findIndex(c => 
-                    c.row === row && c.col === col && c.type === typeKey);
-                
-                if (existingIndex < 0) {
-                    // Add class to cell
-                    cellElement.classList.add(typeKey);
+                    // Draw continuous paths
+                    // if (!layer.paths) return;
+                    // let canvasLayer = document.createElement('canvas');
+                    // canvasLayer.width = state.canvas.width;
+                    // canvasLayer.height = state.canvas.height;
+                    // const ctxl = canvasLayer.getContext("2d");
+                    // ctxl.strokeStyle = layer.color;
+                    // ctxl.lineJoin = 'round';
+                    // ctxl.lineCap = 'round';
                     
-                    // Add to selected cells
-                    selectedCells.push({
-                        row: row,
-                        col: col,
-                        type: typeKey
-                    });
-                    
-                    // Update labels
-                    updateCellLabels(cellElement);
-                }
-            }
-            
-            // Remove a type from a cell
-            function removeCellType(cellElement, row, col, typeKey) {
-                // Find this cell type
-                const existingIndex = selectedCells.findIndex(c => 
-                    c.row === row && c.col === col && c.type === typeKey);
-                
-                if (existingIndex >= 0) {
-                    // Remove class from cell
-                    cellElement.classList.remove(typeKey);
-                    
-                    // Remove from selected cells
-                    selectedCells.splice(existingIndex, 1);
-                    
-                    // Update labels
-                    updateCellLabels(cellElement);
-                }
-            }
-            
-            // Update labels on a cell
-            function updateCellLabels(cellElement) {
-                const row = parseInt(cellElement.dataset.row);
-                const col = parseInt(cellElement.dataset.col);
-                const labelsContainer = cellElement.querySelector('.cell-labels');
-                
-                // Clear existing labels
-                labelsContainer.innerHTML = '';
-                
-                // Get all types for this cell
-                const cellTypesData = selectedCells.filter(c => c.row === row && c.col === col);
-                
-                // Create a label for each type
-                cellTypesData.forEach(cellData => {
-                    const typeInfo = cellTypes[cellData.type];
-                    let typeIndex = Object.keys(cellTypes).indexOf(cellData.type);
-                    if (typeIndex > 5) {
-                        typeIndex = typeInfo.name.substr(0, 2);
-                    }
-                    if (typeInfo) {
-                        const label = document.createElement('span');
-                        label.className = 'cell-label';
-                        label.textContent = typeIndex;
-                        label.style.backgroundColor = typeInfo.color;
-                        label.style.color = getContrastColor(typeInfo.color);
-                        labelsContainer.appendChild(label);
-                    }
-                });
-            }
-            
-            // Get a contrasting text color (black or white) based on background color
-            function getContrastColor(hexColor) {
-                // Convert hex to RGB
-                const r = parseInt(hexColor.substr(1, 2), 16);
-                const g = parseInt(hexColor.substr(3, 2), 16);
-                const b = parseInt(hexColor.substr(5, 2), 16);
-                
-                // Calculate luminance
-                const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-                
-                // Return black for light colors, white for dark colors
-                return luminance > 0.5 ? '#000000' : '#FFFFFF';
-            }
-            
-            // Select a range of cells
-            function selectRange(startRow, endRow, startCol, endCol) {
-                // Apply selection to each cell in the range
-                for (let row = startRow; row <= endRow; row++) {
-                    for (let col = startCol; col <= endCol; col++) {
-                        const cell = document.querySelector(`.cell[data-row="${row}"][data-col="${col}"]`);
-                        if (cell) {
-                            if (isAddTypeMode) {
-                                addCellType(cell, row, col, currentCellType);
-                            } else {
-                                removeCellType(cell, row, col, currentCellType);
-                            }
-                        }
-                    }
-                }
-            }
-            
-            // Save selection to the backend
-            saveSelectionButton.addEventListener('click', function() {
-                const formData = new FormData();
-                formData.append('grid_rows', gridRowsInput.value);
-                formData.append('grid_cols', gridColsInput.value);
-                formData.append('grid_name', gridNameInput.value || 'Untitled Grid');
-                formData.append('copy', document.getElementById("save-copy").checked);
-                formData.append('grid_id', savedGridsSelect.value);
-                formData.append('selected_cells', JSON.stringify(selectedCells));
-                formData.append('cell_types', JSON.stringify(cellTypes));
-                
-                fetch('/save_grid', {
-                    method: 'POST',
-                    body: formData
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.success) {
-                        alert('Grid selection saved successfully!');
-                        if (data.grid_id) {
-                            // If this is a new grid, add it to the dropdown
-                            const entry = savedGridsSelect.querySelector(`option[value="${data.grid_id}"]`);
-                            if (!entry) {
-                                const option = document.createElement('option');
-                                option.value = data.grid_id;
-                                option.textContent = `${gridNameInput.value || 'Untitled Grid'} (${gridRowsInput.value}×${gridColsInput.value})`;
-                                savedGridsSelect.appendChild(option);
-                                fileName.innerHTML = "'"+data.grid_id+".json'";
-                            } else {
-                                entry.innerHTML = data.grid_name + " (" + data.grid_rows + "×" +data.grid_cols + ")";
-                            }
-                        }
-                        if (data.redirect) {
-                            window.location.href = data.redirect;
-                        }
-                    } else {
-                        alert('Error saving grid selection: ' + data.error);
-                    }
-                })
-                .catch(error => {
-                    console.error('Error:', error);
-                    alert('An error occurred while saving.');
-                });
-            });
-            
-            // Clear all selections
-            clearSelectionButton.addEventListener('click', function() {
-                const cells = document.querySelectorAll('.cell');
-                cells.forEach(cell => {
-                    // Remove all type classes
-                    Object.keys(cellTypes).forEach(typeKey => {
-                        cell.classList.remove(typeKey);
-                    });
-                    
-                    // Clear labels
-                    const labelsContainer = cell.querySelector('.cell-labels');
-                    if (labelsContainer) {
-                        labelsContainer.innerHTML = '';
-                    }
-                });
-                
-                selectedCells = [];
-                rangeStart = null;
-            });
-            
-            
+                    // layer.paths.forEach(record => {
+                    //     let path = record.path;
+                    //     ctxl.globalCompositeOperation = record.tool
+                    //     ctxl.lineWidth = record.lineWidth;
+                    //     if (path.length < 2) return;
+                        
+                    //     ctxl.beginPath();
+                    //     ctxl.moveTo(path[0].x, path[0].y);
+                        
+                    //     for (let i = 1; i < path.length; i++) {
+                    //         ctxl.lineTo(path[i].x, path[i].y);
+                    //     }
+                        
+                    //     ctxl.stroke();
+                    // });
 
-{% endblock %}
+                    ctx.drawImage(layer.canvasLayer, 0, 0, state.canvas.width, state.canvas.height);
+                }
+            });
+        }
+
+        // Render the layers list in the UI
+        function renderLayers() {
+            layersList.innerHTML = '';
+            
+            state.layers.forEach((layer, index) => {
+                const layerItem = document.createElement('div');
+                layerItem.className = `layer-item ${index === state.activeLayerIndex ? 'active' : ''}`;
+                
+                const colorDisplay = document.createElement('div');
+                colorDisplay.className = 'color-display';
+                colorDisplay.style.backgroundColor = layer.color;
+                
+                const visibilityCheckbox = document.createElement('input');
+                visibilityCheckbox.type = 'checkbox';
+                visibilityCheckbox.className = 'layer-visibility';
+                visibilityCheckbox.checked = layer.visible;
+                visibilityCheckbox.addEventListener('change', () => {
+                    layer.visible = visibilityCheckbox.checked;
+                    redrawCanvas();
+                });
+                
+                const layerName = document.createElement('span');
+                layerName.className = 'layer-name';
+                layerName.textContent = layer.name;
+                
+                const removeBtn = document.createElement('button');
+                removeBtn.className = 'remove-layer';
+                removeBtn.textContent = 'Remove';
+                removeBtn.disabled = true;
+                removeBtn.addEventListener('click', () => removeLayer(index));
+                
+                layerItem.appendChild(colorDisplay);
+                layerItem.appendChild(visibilityCheckbox);
+                layerItem.appendChild(layerName);
+                layerItem.appendChild(removeBtn);
+                
+                layerItem.addEventListener('click', (e) => {
+                    if (e.target !== removeBtn && e.target !== visibilityCheckbox) {
+                        setActiveLayer(index);
+                    }
+                });
+                
+                layersList.appendChild(layerItem);
+            });
+        }
+
+        // Set the active layer
+        function setActiveLayer(index) {
+            state.activeLayerIndex = index;
+            renderLayers();
+        }
+
+        // Add a new layer
+        function addLayer(name, color) {
+            if (!name.trim()) {
+                alert('Please enter a layer name');
+                return;
+            }
+            
+            state.layers.push({
+                name: name,
+                color: color,
+                visible: true,
+                data: {},
+            });
+            
+            state.activeLayerIndex = state.layers.length - 1;
+            renderLayers();
+        }
+
+        // Remove a layer
+        function removeLayer(index) {
+            // Don't remove if it's the last layer
+            if (state.layers.length <= 1) {
+                alert('Cannot remove the last layer');
+                return;
+            }
+            
+            state.layers.splice(index, 1);
+            
+            // Update active layer index if needed
+            if (state.activeLayerIndex >= state.layers.length) {
+                state.activeLayerIndex = state.layers.length - 1;
+            }
+            
+            renderLayers();
+            redrawCanvas();
+        }
+
+        // Handle grid cell click in discrete mode
+        function handleGridCellClick(x, y) {
+            const cellWidth = state.canvas.width / state.grid.cols;
+            const cellHeight = state.canvas.height / state.grid.rows;
+            
+            const col = Math.floor(x / cellWidth);
+            const row = Math.floor(y / cellHeight);
+            
+            const activeLayer = state.layers[state.activeLayerIndex];
+            const key = `${row},${col}`;
+
+            if (singleRangeBtn.innerHTML[0] != "S"){
+                if (!state.lastCell) {
+                    state.lastCell = {row, col};
+                } else {
+                    const rf = Math.min(row, state.lastCell.row);
+                    const rt = Math.max(row, state.lastCell.row);
+                    const cf = Math.min(col, state.lastCell.col);
+                    const ct = Math.max(col, state.lastCell.col);
+                    const pen = penEraserBtn.innerHTML[0] == "D";
+                    for (let r=rf; r <= rt; r++) {
+                        for (let c=cf; c <= ct; c++) {
+                            if (pen) {
+                                activeLayer.data[`${r},${c}`] = true;
+                            } else {
+                                delete activeLayer.data[`${r},${c}`];
+                            }
+                        }
+                    }
+                    state.lastCell = null;
+                }
+            } else {
+                if (activeLayer.data[key]) {
+                    delete activeLayer.data[key];
+                } else {
+                    activeLayer.data[key] = true;
+                }
+            }
+            
+            redrawCanvas();
+        }
+
+        // Handle mouse movement in continuous mode
+        function handleContinuousDraw(x, y) {
+            if (!state.isDrawing) return;
+            
+            const activeLayer = state.layers[state.activeLayerIndex];
+            if (!activeLayer.paths) {
+                activeLayer.paths = [];
+            }
+
+            if (!state.currentPath) {
+                state.currentPath = {path:[], tool:ctx.globalCompositeOperation, lineWidth:ctx.lineWidth };
+                activeLayer.paths.push(state.currentPath);
+            }
+            
+            state.currentPath.path.push({ x, y });
+            const ctxl = activeLayer.ctxl;
+            ctxl.strokeStyle = activeLayer.color;
+            if (state.lastPosition) {
+                ctxl.beginPath();
+                ctxl.moveTo(state.lastPosition.x, state.lastPosition.y);
+                ctxl.lineTo(x, y);
+                ctxl.stroke();
+            }
+            state.lastPosition = { x, y };
+            ctx.drawImage(activeLayer.canvasLayer, 0, 0, state.canvas.width, state.canvas.height);
+        }
+
+        function loadTerrainToCanvas(filepath) {
+            fetch('/get_images/'+filepath)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {                    
+                    data.images.forEach((image, i) => {
+                        if (state.layers[i].name == image.name) {
+                            if (!image.hasimage) {return};
+                            const img = new Image();
+                            const ctxl = state.layers[i].ctxl;
+                            img.onload = function() {
+                                ctxl.drawImage(img, 0, 0, state.canvas.width, state.canvas.height)
+                            };
+                            img.src = `data:image/png;base64,${image.image}`;
+                        } else {
+                            console.log("index error");
+                        }
+                    })
+                })
+        }
+        function saveAllCanvas(filepath) {
+            // Get the image data as base64 string (remove data:image/png;base64, prefix)
+            const requestBody = {dim: [state.canvas.width, state.canvas.height]}; 
+            const terrain = [];
+
+            state.layers.forEach((layer) => {
+                const imageData = layer.canvasLayer.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
+                terrain.push({name: layer.name, color: layer.color, mask: imageData})
+            })
+            
+            // Create request body
+            requestBody["terrain"] = terrain;
+            
+            // Send POST request to Flask endpoint
+            return fetch('/save_images/'+filepath, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(requestBody)
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`Error saving image ${imageId}: ${response.statusText}`);
+                }
+                return response.json();
+            });
+        }
+
+// Setup event listeners
+        function setupEventListeners() {
+            // Mode change
+            modeSelect.forEach((mode) => {mode.addEventListener('click', () => {
+                state.mode = mode.value;
+                if (state.mode === 'discrete') {
+                    gridOverlay.style.display = 'block';
+                    gridControl.style.display = 'inline';
+                    canvasControl.style.display = 'none';
+                    modeD.style.color = "blueviolet";
+                    modeC.style.color = "black";
+                } else {
+                    gridOverlay.style.display = 'none';
+                    gridControl.style.display = 'none';
+                    canvasControl.style.display = 'inline';
+                    modeC.style.color = "blueviolet";
+                    modeD.style.color = "black";
+                }
+                redrawCanvas();
+            })});
+            
+            // Apply grid
+            applyGridBtn.addEventListener('click', () => {
+                const rows = parseInt(gridRowsInput.value);
+                const cols = parseInt(gridColsInput.value);
+                
+                if (rows >= 2 && rows <= 50 && cols >= 2 && cols <= 50) {
+                    state.grid.rows = rows;
+                    state.grid.cols = cols;
+                    drawGrid();
+                    redrawCanvas();
+                } else {
+                    alert('Grid size must be between 2 and 50');
+                }
+            });
+
+            penEraserBtn.addEventListener('click', () => {
+                if (penEraserBtn.innerHTML[0] == "D") {
+                    penEraserBtn.innerHTML = "[Eraser]";
+                    penEraserBtn.style.color = "lightgreen";
+                } else {
+                    penEraserBtn.innerHTML = "Draw color";
+                    penEraserBtn.style.color = "white";
+                }
+            }); singleRangeBtn.addEventListener('click', () => {
+                if (singleRangeBtn.innerHTML[0] != "S") {
+                    singleRangeBtn.innerHTML = "Single cell";
+                    singleRangeBtn.style.color = "white";
+                } else {
+                    singleRangeBtn.innerHTML = "[Rectangle]";
+                    singleRangeBtn.style.color = "lightgreen";
+                }
+            })
+
+            undoBtn.addEventListener('click', () => {
+                const activeLayer = state.layers[state.activeLayerIndex];
+                if (!activeLayer.paths) {
+                    activeLayer.paths = [];
+                    activeLayer.backups = [];
+                } else if (activeLayer.paths.length > 0) {
+                    activeLayer.backups.push(activeLayer.paths.pop());
+                    redrawCanvas();
+                }
+            })
+            redoBtn.addEventListener('click', () => {
+                const activeLayer = state.layers[state.activeLayerIndex];
+                if (!activeLayer.backups) {
+                    activeLayer.backups = [];
+                } else if (activeLayer.backups.length > 0) {
+                    activeLayer.paths.push(activeLayer.backups.pop());
+                    redrawCanvas();
+                }
+            })
+            clearBtn.addEventListener('click', () => {
+                if (state.mode == "discrete") {
+                    state.layers.forEach((layer) => {
+                        layer.data = {};
+                    })
+                    redrawCanvas();
+                } else {
+                    state.layers.forEach((layer) => {
+                        layer.ctxl.clearRect(0, 0, state.canvas.width, state.canvas.height);
+                    })
+                    ctx.clearRect(0, 0, state.canvas.width, state.canvas.height);
+                }
+            }); clearLayerBtn.addEventListener('click', () => {
+                const activeLayer = state.layers[state.activeLayerIndex]; 
+                if (state.mode == "discrete") {
+                    activeLayer.data = {};
+                    redrawCanvas();
+                } else {
+                    activeLayer.ctxl.clearRect(0, 0, state.canvas.width, state.canvas.height);
+                    redrawCanvas();
+                }
+            })
+
+            loadBtn.addEventListener('click', () => {
+                if (state.mode == "continuous") {
+                    loadTerrainToCanvas(fnameBox.value);
+                }
+            })
+            saveBtn.addEventListener('click', () => {
+                if (state.mode == "continuous") {
+                    saveAllCanvas(fnameBox.value);
+                }
+            })
+            
+            // Add layer
+            addLayerBtn.addEventListener('click', () => {
+                addLayer(newLayerNameInput.value, newLayerColorInput.value);
+                newLayerNameInput.value = '';
+            });
+            
+            // Canvas mouse events
+            canvas.addEventListener('mousedown', (e) => {
+                const rect = canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                
+                if (state.mode === 'discrete') {
+                    handleGridCellClick(x, y);
+                } else {
+                    state.isDrawing = true;
+                    state.lastPosition = { x, y };
+                    
+                    state.currentPath = {path:[{ x, y }], tool:ctx.globalCompositeOperation, lineWidth:ctx.lineWidth};
+                    
+                    const activeLayer = state.layers[state.activeLayerIndex];
+                    const ctxl = activeLayer.ctxl;
+                    if (penEraserBtn.innerHTML[0] == "D") {
+                        ctxl.globalCompositeOperation = 'source-over';
+                    } else {
+                        ctxl.globalCompositeOperation = 'destination-out';
+                    }// Draw the line segment
+                    ctxl.lineWidth = brushSize.value;
+                    ctxl.lineJoin = 'round';
+                    ctxl.lineCap = 'round';
+                    if (!activeLayer.paths) {
+                        activeLayer.paths = [];
+                    }
+                    activeLayer.paths.push(state.currentPath);
+                    activeLayer.backups = [];
+
+                    ctx.beginPath();
+                    ctx.arc(x, y, brushSize.value/2, 0, Math.PI * 2);
+                    ctx.strokeStyle = activeLayer.color;
+                    ctx.stroke();
+                }
+            });
+            
+            canvas.addEventListener('mousemove', (e) => {
+                if (state.mode === 'continuous') {
+                    const rect = canvas.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const y = e.clientY - rect.top;
+                    if (state.isDrawing) {
+                        // Draw the brush radius indicator (outline circle)
+                        ctx.beginPath();
+                        ctx.arc(x, y, brushSize.value/2, 0, Math.PI * 2);
+                        ctx.strokeStyle = 'rgba(0.8, 0.8, 0.8, 0.2)';
+                        ctx.stroke();
+                    }
+                    handleContinuousDraw(x, y);
+                }
+            });
+            
+            canvas.addEventListener('mouseup', () => {
+                state.isDrawing = false;
+                state.lastPosition = null;
+                state.currentPath = null;
+                redrawCanvas();
+            });
+            
+            canvas.addEventListener('mouseleave', () => {
+                state.isDrawing = false;
+                state.lastPosition = null;
+                state.currentPath = null;
+                redrawCanvas();
+            });
+        }
+
+        // Initialize application when document is loaded
+        document.addEventListener('DOMContentLoaded', init);
+        // Call init() to ensure app starts even if DOMContentLoaded already fired
+        if (document.readyState === 'complete' || document.readyState === 'interactive') {
+            init();
+        }
+    </script>
+</body>
 </html>

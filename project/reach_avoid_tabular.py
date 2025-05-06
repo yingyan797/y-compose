@@ -136,14 +136,20 @@ def load_room(name):
 
 
 if __name__ == "__main__":
-    room = load_room("20250418220432.json")
+    # room = load_room("20250418220432.json")
     # room = create_room("color shape experiment")
-    room.start()
-    room.visual()
+    # room.start()
+    # room.visual()
 
     # a = torch.ones((16,16,10,10,8))
     # pa = a.permute(0,1,4,2,3).reshape(16,16,8,-1)
 
     # indices = torch.tensor([12, 45, 79, 88], dtype=torch.int)
     # print(pa.index_select(3, indices).shape)
+    
+    # project = torch.load("project/static/saved_cont/ycompose.pt")
+    # print(project)
+
+    t = torch.BoolTensor([[1,0,0], [1,0,1]])
+    print(torch.nonzero(t))
 
