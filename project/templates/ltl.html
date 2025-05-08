@@ -156,7 +156,8 @@
 
             loadButton.addEventListener('click', function() {
                 const fname = document.getElementById("fsel").value;
-                fetch(`/load_dfa/${fname}`).then(response => response.json()).then(data => {
+                fetch('/load_dfa', {method: "POST", body:{fname: fname}})
+                .then(response => response.json()).then(data => {
                     if (data.success) {
                         create_table(data);
                     } else {

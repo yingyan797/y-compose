@@ -150,6 +150,5 @@ if __name__ == "__main__":
     # project = torch.load("project/static/saved_cont/ycompose.pt")
     # print(project)
 
-    t = torch.BoolTensor([[1,0,0], [1,0,1]])
-    print(torch.nonzero(t))
+    d = {"1,2": True, }
 

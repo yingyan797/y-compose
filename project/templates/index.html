@@ -109,6 +109,19 @@
             display: table;
             clear: both;
         }
+        .msg {
+            font-size: small;
+            color: lightseagreen;
+            margin-left: 10px;
+            padding: 3px;
+            border-radius: 3px;
+            border: dashed;
+        }
+        .clickable:hover {
+            cursor: pointer;
+            border: solid;
+            color: blueviolet;
+        }
 
     </style>
 </head>
@@ -117,7 +130,8 @@
         <div class="grid-controls"><h3>Y-compose: terrain editing - 
             <input type="radio" name="drawingMode" value="discrete" checked><label id="modeD" style="color: blueviolet;"> Discrete (Grid) </label>
             <input type="radio" name="drawingMode" value="continuous"><label id="modeC">Continuous (Free Draw); </label>| 
-            <a href="/ltl">LTL compose</a></h3>
+            <a href="/ltl">LTL compose</a>; <i id="msgbox" class="msg" rows="1" readonly></i>
+                <b id="cmsg" class="clickable" onclick="pushMessage(true, '')">X</b></h3>
             <label for="gridRows" id="gridControl">Grid Size: 
                 <input type="number" id="gridRows" min="2" max="50" value="10" style="width: 50px;"> x 
                 <input type="number" id="gridCols" min="2" max="50" value="10" style="width: 50px;">
@@ -143,7 +157,6 @@
                 <canvas id="gridOverlay" class="grid-overlay" width="600" height="600"></canvas>
             </div>
         </div><div class="column">
-
             <div class="layer-controls">
                 <label for="newLayerName">New Layer: </label>
                 <input type="text" id="newLayerName" placeholder="Layer name">
@@ -207,6 +220,7 @@
         const loadBtn = document.getElementById("load");
         const delBtn = document.getElementById("delete");
         const saveBtn = document.getElementById("save");
+        const msgbox = document.getElementById("msgbox");
 
         const canvas = document.getElementById('drawingCanvas');
         const ctx = canvas.getContext('2d');
@@ -230,10 +244,17 @@
             setupEventListeners();
             redrawCanvas();
         }
-
         function uploadFile() {
             const segs = document.getElementById("ipf").value.split("\\");
             fnameBox.value = segs[segs.length-1];
+        }
+        function pushMessage(success, content) {
+            if (success) {
+                msgbox.style.color = "lightseagreen";
+            } else {
+                msgbox.style.color = "salmon";
+            }
+            msgbox.innerHTML = content;
         }
 
         // Draw grid on overlay
@@ -476,7 +497,9 @@
         }
 
         function loadTerrainToCanvas(filepath) {
-            fetch('/get_images/'+filepath)
+            fetch('/get_images', {method:'POST', headers: {
+                            'Content-Type': 'application/json'
+                        },body: JSON.stringify({fname: filepath})})
                 .then(response => {
                     if (!response.ok) {
                         throw new Error('Network response was not ok');
@@ -499,9 +522,21 @@
                     })
                 })
         }
+
+        function setupGrid(rows, cols) {
+            if (rows >= 2 && rows <= 50 && cols >= 2 && cols <= 50) {
+                state.grid.rows = rows;
+                state.grid.cols = cols;
+                drawGrid();
+                redrawCanvas();
+            } else {
+                alert('Grid size must be between 2 and 50');
+            }
+        }
+
         function saveAllCanvas(filepath) {
             // Get the image data as base64 string (remove data:image/png;base64, prefix)
-            const requestBody = {dim: [state.canvas.width, state.canvas.height]}; 
+            const requestBody = {fname:filepath, dim: [state.canvas.width, state.canvas.height]}; 
             const terrain = [];
 
             state.layers.forEach((layer) => {
@@ -513,7 +548,7 @@
             requestBody["terrain"] = terrain;
             
             // Send POST request to Flask endpoint
-            return fetch('/save_images/'+filepath, {
+            return fetch('/save_images', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -553,15 +588,7 @@
             applyGridBtn.addEventListener('click', () => {
                 const rows = parseInt(gridRowsInput.value);
                 const cols = parseInt(gridColsInput.value);
-                
-                if (rows >= 2 && rows <= 50 && cols >= 2 && cols <= 50) {
-                    state.grid.rows = rows;
-                    state.grid.cols = cols;
-                    drawGrid();
-                    redrawCanvas();
-                } else {
-                    alert('Grid size must be between 2 and 50');
-                }
+                setupGrid(rows, cols);
             });
 
             penEraserBtn.addEventListener('click', () => {
@@ -627,12 +654,63 @@
             loadBtn.addEventListener('click', () => {
                 if (state.mode == "continuous") {
                     loadTerrainToCanvas(fnameBox.value);
+                } else {
+                    fetch("/load_grid", {method:'POST', 
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body:JSON.stringify({fname:fnameBox.value})})
+                    .then(response => response.json()).then(data => {
+                        data.grid.forEach((layer, i) => {
+                            if (layer.name == state.layers[i].name) {
+                                state.layers[i].data = layer.data;
+                            }
+                        })
+                        setupGrid(data.rows, data.cols);
+                        gridRowsInput.value = data.rows;
+                        gridColsInput.value = data.cols;
+                    })
                 }
+                pushMessage(true, "Load file "+fnameBox.value);
             })
             saveBtn.addEventListener('click', () => {
                 if (state.mode == "continuous") {
                     saveAllCanvas(fnameBox.value);
+                } else {
+                    const requestBody = {fname:fnameBox.value, dim: [state.grid.rows, state.grid.cols]};
+                    requestBody["terrain"] = state.layers.map((layer) => {
+                        return {name: layer.name, color: layer.color, mask: layer.data};
+                    });
+                    fetch('/save_grid', {method: 'POST', 
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(requestBody)})
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`Error saving grid ${response.statusText}`);
+                        }
+                        return response.json();
+                    });
                 }
+                pushMessage(true, "Save file "+fnameBox.value);
+            })
+            delBtn.addEventListener('click', () => {
+                let mode = "saved_disc";
+                if (state.mode == "continuous") {
+                    mode = "saved_cont";
+                }
+                fetch('/deltrn/'+mode, {method:'PUT', 
+                headers: {
+                            'Content-Type': 'application/json'
+                        },body:JSON.stringify({fname:fnameBox.value})})
+                .then(response => {
+                    if (response.ok) {
+                        pushMessage(true, "Delete "+mode+"/"+fnameBox.value);
+                    } else {
+                        pushMessage(false, "Delete file not found");
+                    }
+                })
             })
             
             // Add layer
