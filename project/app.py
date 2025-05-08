@@ -24,7 +24,10 @@ def index():
 
 @app.route('/get_images', methods=["POST"])
 def get_images():
-    project = torch.load(f"{IMAGES_DIR}/{request.json.get('fname')}")
+    try:
+        project = torch.load(f"{IMAGES_DIR}/{request.json.get('fname')}")
+    except FileNotFoundError:
+        return jsonify({"success": False})
     images = []
     for layer in project["terrain"]:  # Creating 3 sample images
         # Create a sample numpy array (100x100 with random values)
@@ -37,7 +40,7 @@ def get_images():
             hascolor = torch.nonzero(mask)
             rows, cols = hascolor[:,0], hascolor[:,1]
             # Convert numpy array to image
-            black[rows, cols] = torch.IntTensor(layer["color"])
+            black[rows, cols] = torch.IntTensor(layer["color"]+[255])
             img = Image.fromarray(black.numpy().astype(np.uint8))
             # Convert to base64 string
             buffer = io.BytesIO()
@@ -46,7 +49,7 @@ def get_images():
         
         images.append({"name":layer["name"], "hasimage": hasimage, "image":img_str})
     
-    return jsonify({'images': images})
+    return jsonify({'success':True, 'images': images})
 
 @app.route('/save_images', methods=['POST'])
 def save_images():
@@ -94,7 +97,10 @@ def save_grid():
 def load_grid():
     """Load grid data from a saved file"""
     filename = f"{GRIDS_DIR}/{request.json.get('fname')}"
-    project = torch.load(filename)
+    try:
+        project = torch.load(filename)
+    except FileNotFoundError:
+        return jsonify({"success": False})
     grid = []
     for layer in project["terrain"]:  # Creating 3 sample images
         # Create a sample numpy array (100x100 with random values)
@@ -106,13 +112,12 @@ def load_grid():
                 data[f"{loc[0]},{loc[1]}"] = True
             
         grid.append({"name":layer["name"], "hasimage": hasimage, "data":data})
-    return jsonify({"rows": project["dim"][0], "cols":project["dim"][1], "grid": grid})
+    return jsonify({"success":True, "rows": project["dim"][0], "cols":project["dim"][1], "grid": grid})
 
 @app.route('/deltrn/<mode>', methods=['PUT'])
 def deltrn(mode):
     """Delete a saved terrain"""
     filename = f"project/static/{mode}/{request.json.get('fname')}"
-    print(filename)
     if os.path.exists(filename):
         os.remove(filename)
         return jsonify({'success': True})

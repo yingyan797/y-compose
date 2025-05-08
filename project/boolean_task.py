@@ -115,7 +115,7 @@ class GoalOrientedQLearning:
         return rewards_per_episode
     
     def parse_compose(self, instr:str):
-        full_goals = torch.where(self.env.terrain==2, 1, 0)
+        full_goals = torch.where(self.env.terrain==2, 1, 0).to(dtype=torch.bool)
         def task_and(masks):
             masks = torch.stack(masks)
             return torch.min(masks, dim=0).values
@@ -123,7 +123,7 @@ class GoalOrientedQLearning:
             masks = torch.stack(masks)
             return torch.min(masks, dim=0).values
         def task_not(mask):
-            neg = 1-mask
+            neg = torch.logical_not(mask)
             return torch.minimum(neg, full_goals)
         comp_functions = {"and": task_and, "or": task_or, "not": task_not}
         def parse_expr(expression:str) -> torch.Tensor:
@@ -288,17 +288,17 @@ class GoalOrientedQLearning:
 if __name__ == "__main__":
     # Initialize the environment and agent
     agent = GoalOrientedQLearning(
-        room=load_room('20250425142229.json'),
-        pretrained=True,
+        room=load_room('saved_disc/color shape.pt'),
+        pretrained=False,
     )
     
     # Train the agent
     agent.env.start()
     # rewards = agent.train(num_episodes=401, max_steps_per_episode=100)
     # mask = agent.parse_compose("and(not('goal-2'), 'goal-1')")
-    mask = agent.parse_compose("not(and('goal-1', 'goal-2'))")
-    agent.visualize_policy_with_arrows(mask, "not-(g1 and g2")
-    agent.test_policy(mask, [8,1])
+    # mask = agent.parse_compose("not(and('goal-1', 'goal-2'))")
+    # agent.visualize_policy_with_arrows(mask, "not-(g1 and g2")
+    # agent.test_policy(mask, [8,1])
     # # Plot learning curve
     # plt.figure(figsize=(10, 5))
     # plt.plot(rewards)

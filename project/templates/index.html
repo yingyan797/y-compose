@@ -145,8 +145,8 @@
             </label> | <button id="penEraser">Draw color</button> 
             <button class="remove-layer" id="clearLayer">Clear layer</button> 
             <button class="remove-layer" id="clear">Restart</button>
-            Terrain name:<input type="file" style="width: 80px;" id="ipf" oninput="uploadFile()"> 
-            <input type="text" id="fname"> <button id="load">Load</button> <button id="save">Save</button>
+            Terrain name:<input type="file" style="width: 80px;" id="ipf" accept=".pt" oninput="uploadFile()"> 
+            <input type="text" id="fname">.pt <button id="load">Load</button> <button id="save">Save</button>
             <button id="copy" style="border: dashed;">Copy</button> 
             <button id="delete" class="remove-layer">Delete</button> 
         </div>
@@ -246,7 +246,7 @@
         }
         function uploadFile() {
             const segs = document.getElementById("ipf").value.split("\\");
-            fnameBox.value = segs[segs.length-1];
+            fnameBox.value = segs[segs.length-1].split(".")[0];
         }
         function pushMessage(success, content) {
             if (success) {
@@ -496,33 +496,6 @@
             ctx.drawImage(activeLayer.canvasLayer, 0, 0, state.canvas.width, state.canvas.height);
         }
 
-        function loadTerrainToCanvas(filepath) {
-            fetch('/get_images', {method:'POST', headers: {
-                            'Content-Type': 'application/json'
-                        },body: JSON.stringify({fname: filepath})})
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error('Network response was not ok');
-                    }
-                    return response.json();
-                })
-                .then(data => {                    
-                    data.images.forEach((image, i) => {
-                        if (state.layers[i].name == image.name) {
-                            if (!image.hasimage) {return};
-                            const img = new Image();
-                            const ctxl = state.layers[i].ctxl;
-                            img.onload = function() {
-                                ctxl.drawImage(img, 0, 0, state.canvas.width, state.canvas.height)
-                            };
-                            img.src = `data:image/png;base64,${image.image}`;
-                        } else {
-                            console.log("index error");
-                        }
-                    })
-                })
-        }
-
         function setupGrid(rows, cols) {
             if (rows >= 2 && rows <= 50 && cols >= 2 && cols <= 50) {
                 state.grid.rows = rows;
@@ -532,35 +505,6 @@
             } else {
                 alert('Grid size must be between 2 and 50');
             }
-        }
-
-        function saveAllCanvas(filepath) {
-            // Get the image data as base64 string (remove data:image/png;base64, prefix)
-            const requestBody = {fname:filepath, dim: [state.canvas.width, state.canvas.height]}; 
-            const terrain = [];
-
-            state.layers.forEach((layer) => {
-                const imageData = layer.canvasLayer.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
-                terrain.push({name: layer.name, color: layer.color, mask: imageData})
-            })
-            
-            // Create request body
-            requestBody["terrain"] = terrain;
-            
-            // Send POST request to Flask endpoint
-            return fetch('/save_images', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(requestBody)
-            })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error(`Error saving image ${imageId}: ${response.statusText}`);
-                }
-                return response.json();
-            });
         }
 
 // Setup event listeners
@@ -653,14 +597,46 @@
 
             loadBtn.addEventListener('click', () => {
                 if (state.mode == "continuous") {
-                    loadTerrainToCanvas(fnameBox.value);
+                    fetch('/get_images', {method:'POST', headers: {
+                            'Content-Type': 'application/json'
+                        },body: JSON.stringify({fname: fnameBox.value+".pt"})})
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error('Network response was not ok');
+                        }
+                        return response.json();
+                    })
+                    .then(data => {                    
+                        if (!data.success) {
+                            pushMessage(false, "Not found images "+fnameBox.value);
+                            return;
+                        }
+                        data.images.forEach((image, i) => {
+                            if (state.layers[i].name == image.name) {
+                                if (!image.hasimage) {return};
+                                const img = new Image();
+                                const ctxl = state.layers[i].ctxl;
+                                img.onload = function() {
+                                    ctxl.drawImage(img, 0, 0, state.canvas.width, state.canvas.height)
+                                };
+                                img.src = `data:image/png;base64,${image.image}`;
+                            } else {
+                                console.log("index error");
+                            }
+                        })
+                        pushMessage(true, "Loading images "+fnameBox.value);
+                    })
                 } else {
                     fetch("/load_grid", {method:'POST', 
                         headers: {
                             'Content-Type': 'application/json'
                         },
-                        body:JSON.stringify({fname:fnameBox.value})})
+                        body:JSON.stringify({fname:fnameBox.value+".pt"})})
                     .then(response => response.json()).then(data => {
+                        if (!data.success) {
+                            pushMessage(false, "Not found grid "+fnameBox.value);
+                            return;
+                        }
                         data.grid.forEach((layer, i) => {
                             if (layer.name == state.layers[i].name) {
                                 state.layers[i].data = layer.data;
@@ -669,15 +645,45 @@
                         setupGrid(data.rows, data.cols);
                         gridRowsInput.value = data.rows;
                         gridColsInput.value = data.cols;
+                        pushMessage(true, "Loading grid "+fnameBox.value);
                     })
                 }
-                pushMessage(true, "Load file "+fnameBox.value);
             })
             saveBtn.addEventListener('click', () => {
                 if (state.mode == "continuous") {
-                    saveAllCanvas(fnameBox.value);
+                    const requestBody = {fname:fnameBox.value+".pt", dim: [state.canvas.height, state.canvas.width]}; 
+                    const terrain = [];
+
+                    state.layers.forEach((layer) => {
+                        const imageData = layer.canvasLayer.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
+                        terrain.push({name: layer.name, color: layer.color, mask: imageData})
+                    })
+                    
+                    // Create request body
+                    requestBody["terrain"] = terrain;
+                    
+                    // Send POST request to Flask endpoint
+                    return fetch('/save_images', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(requestBody)
+                    })
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`Error saving image ${imageId}: ${response.statusText}`);
+                        }
+                        return response.json();
+                    }).then(data => {
+                        if (!data.success) {
+                            pushMessage(false, "Failed to save "+fnameBox.value);
+                        } else {
+                            pushMessage(true, "Saving images "+fnameBox.value);
+                        }
+                    });
                 } else {
-                    const requestBody = {fname:fnameBox.value, dim: [state.grid.rows, state.grid.cols]};
+                    const requestBody = {fname:fnameBox.value+".pt", dim: [state.grid.rows, state.grid.cols]};
                     requestBody["terrain"] = state.layers.map((layer) => {
                         return {name: layer.name, color: layer.color, mask: layer.data};
                     });
@@ -691,7 +697,13 @@
                             throw new Error(`Error saving grid ${response.statusText}`);
                         }
                         return response.json();
-                    });
+                    }).then(data => {
+                        if (!data.success) {
+                            pushMessage(false, "Failed to save "+fnameBox.value);
+                        } else {
+                            pushMessage(true, "Saving grids "+fnameBox.value);
+                        }
+                    });;
                 }
                 pushMessage(true, "Save file "+fnameBox.value);
             })
@@ -703,9 +715,9 @@
                 fetch('/deltrn/'+mode, {method:'PUT', 
                 headers: {
                             'Content-Type': 'application/json'
-                        },body:JSON.stringify({fname:fnameBox.value})})
-                .then(response => {
-                    if (response.ok) {
+                        },body:JSON.stringify({fname:fnameBox.value+".pt"})})
+                .then(response => response.json()).then( data => {
+                    if (data.success) {
                         pushMessage(true, "Delete "+mode+"/"+fnameBox.value);
                     } else {
                         pushMessage(false, "Delete file not found");
