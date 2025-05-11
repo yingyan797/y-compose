@@ -147,7 +147,7 @@
             <button class="remove-layer" id="clear">Restart</button>
             Terrain name:<input type="file" style="width: 80px;" id="ipf" accept=".pt" oninput="uploadFile()"> 
             <input type="text" id="fname">.pt <button id="load">Load</button> <button id="save">Save</button>
-            <button id="copy" style="border: dashed;">Copy</button> 
+            <button id="copy" style="border: dashed;" onclick="copyFile()">Copy</button> 
             <button id="delete" class="remove-layer">Delete</button> 
         </div>
     <div class="row">
@@ -247,6 +247,15 @@
         function uploadFile() {
             const segs = document.getElementById("ipf").value.split("\\");
             fnameBox.value = segs[segs.length-1].split(".")[0];
+        }
+        function copyFile() {
+            let text = "saved_disc";
+            if (state.mode == "continuous") {
+                text = "saved_cont";
+            }
+            text += "/"+fnameBox.value+".pt";
+            navigator.clipboard.writeText(text);
+            pushMessage(true, "Copied file path '"+text+"'")
         }
         function pushMessage(success, content) {
             if (success) {

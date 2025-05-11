@@ -5,8 +5,8 @@ from reach_avoid_tabular import torch, Room, create_room, load_room
 import matplotlib.pyplot as plt
 from matplotlib.patches import Arrow, Rectangle
 
-class GoalOrientedQLearning:
-    def __init__(self, room:Room, pretrained=False, alpha=0.1, gamma=0.98, epsilon=0.1, fn=""):
+class GoalOrientedBase:
+    def __init__(self, room:Room, learning_rate=0.1, gamma=0.98, epsilon=0.1, r_min=-1e8):
         """
         Initialize the Goal-Oriented Q-Learning algorithm for a 2D reach-avoid navigation task.
         
@@ -18,71 +18,30 @@ class GoalOrientedQLearning:
             r_min: Lower-bound extended reward
         """
         self.env = room
-        self.alpha = alpha
+        self.learning_rate = learning_rate
         self.gamma = gamma
         self.epsilon = epsilon
-        self.r_min = -1e8
-        
-        # Action space: 8 directions (N, NE, E, SE, S, SW, W, NW)
-        self.actions = list(range(8))
-        
-        # Q-table: state, subgoal, action -> value
-        # State is (x, y), subgoal is (x, y)
-        self.Q = torch.zeros(room.shape+room.shape+(8,)) if not pretrained else torch.load(f"project/static/{fn}goal-q.pt")
-        # Set of visited states that can serve as subgoals
-        self.G = set() if not pretrained else set((goal[0], goal[1]) for goal in torch.load(f"project/static/{fn}subgoals.pt"))
-        
-    def _q_learning_update(self, state, next_state, action, reward, done):
-        """Get Q-value for a state-subgoal-action triple."""
+        self.r_min = r_min
+        self.G = set() 
 
-        subgoals = torch.tensor(list(self.G), dtype=int)
-        sx, sy = tuple(state[i].expand(subgoals.shape[0]) for i in range(2))
-        action = torch.tensor(action, dtype=int).expand(subgoals.shape[0])
-        nx, ny = tuple(next_state[i].expand(subgoals.shape[0]) for i in range(2))
-
-        goal_neq = []
-        for i in range(subgoals.shape[0]):
-            if not torch.equal(next_state, subgoals[i]):
-                goal_neq.append(i)
-        sub_q = self.Q[sx, sy, subgoals[:, 0], subgoals[:, 1], action]
-
-        if done > 0:
-            delta = torch.tensor(reward) - sub_q
-            delta[goal_neq] = self.r_min
-        else:
-            max_next_q = torch.max(self.Q[nx, ny, subgoals[:, 0], subgoals[:, 1]])
-            delta = reward + self.gamma * max_next_q - sub_q
-
-        new_q = sub_q + self.alpha * delta
-        self.Q[sx, sy, subgoals[:, 0], subgoals[:, 1], action] = new_q
+    def _random_condition(self):
+        return not self.G or random.random() < self.epsilon
     
-    def select_action(self, state, mask=None):
-        """Select an action using epsilon-greedy policy."""
-        if not self.G or random.random() < self.epsilon:
-            return random.choice(self.actions)
-        
-        # Choose the best action based on current subgoals
-        if mask is None:
-            subgoals = torch.IntTensor(list(self.G))
-        sx, sy = tuple(state[i].expand(subgoals.shape[0]) for i in range(2))
-        qs = self.Q[sx, sy, subgoals[:, 0], subgoals[:, 1]]
-        max_av = torch.max(qs, 0)
-        action_values = {}
-        for a in self.actions:
-            if max_av.values[a] not in action_values:
-                action_values[max_av.values[a]] = [a]
-            else:
-                action_values[max_av.values[a]].append(a)
+    def _train(self, *args):
+        raise NotImplementedError()
 
-        best_actions = action_values[max(action_values.keys())]
-        if len(best_actions) == 1:
-            return best_actions[0]
-        return random.choice(best_actions)
-        
-    def train(self, num_episodes=1000, max_steps_per_episode=100, fn=""):
+    def _save_progress(self):
+        pass
+
+    def _add_goal(self, state):
+        self.G.add((state[0].item(), state[1].item()))
+
+    def select_action(self, *args):
+        raise NotImplementedError()
+
+    def train_episodes(self, num_episodes=1000, max_steps_per_episode=100, fn=""):
         """Train the agent using Goal-Oriented Q-Learning."""
         rewards_per_episode = []
-        
         for episode in range(num_episodes):
             # Initialize state
             state = self.env.start()
@@ -97,22 +56,80 @@ class GoalOrientedQLearning:
                 
                 # Update Q-values for each subgoal
                 if self.G:
-                    self._q_learning_update(state, next_state, action, reward, done)
+                    self._train(state, action, reward, next_state, done)
                 
                 state = next_state
                 steps += 1
                 
                 if done > 0:
                     # Add the current state to the set of subgoals
-                    self.G.add((state[0].item(), state[1].item()))
+                    self._add_goal(state)
 
             rewards_per_episode.append(episode_reward)
             if episode % 100 == 0:
                 print(f"Episode {episode}, num goals {len(self.G)}, Avg Reward: {np.mean(rewards_per_episode[-100:]):.2f}")
-                torch.save(self.Q, f"project/static/{fn}goal-q.pt")
-                torch.save(self.G, f"project/static/{fn}subgoals.pt")
+                self._save_progress()
         
         return rewards_per_episode
+    
+class GoalOrientedQLearning(GoalOrientedBase):
+    def __init__(self, room:Room, pretrained=False):
+        super().__init__(room, pretrained)
+        # Action space: 8 directions (N, NE, E, SE, S, SW, W, NW)
+        self.actions = list(range(8))        
+        # Q-table: state, subgoal, action -> value
+        # State is (x, y), subgoal is (x, y)
+        self.G = set() if not pretrained else set((goal[0], goal[1]) for goal in torch.load("project/static/subgoals.pt"))
+        self.Q = torch.zeros(room.shape+room.shape+(8,)) if not pretrained else torch.load(f"project/static/goal-q.pt")
+    
+    def _train(self, state, action, reward, next_state, done):
+        """Get Q-value for a state-subgoal-action triple."""
+
+        goals = torch.tensor(list(self.G), dtype=int)
+        sx, sy = tuple(state[i].expand(goals.shape[0]) for i in range(2))
+        action = torch.tensor(action, dtype=int).expand(goals.shape[0])
+        nx, ny = tuple(next_state[i].expand(goals.shape[0]) for i in range(2))
+
+        goal_neq = []
+        for i in range(goals.shape[0]):
+            if not torch.equal(next_state, goals[i]):
+                goal_neq.append(i)
+        sub_q = self.Q[sx, sy, goals[:, 0], goals[:, 1], action]
+
+        if done > 0:
+            delta = torch.tensor(reward) - sub_q
+            delta[goal_neq] = self.r_min
+        else:
+            max_next_q = torch.max(self.Q[nx, ny, goals[:, 0], goals[:, 1]])
+            delta = reward + self.gamma * max_next_q - sub_q
+
+        new_q = sub_q + self.alpha * delta
+        self.Q[sx, sy, goals[:, 0], goals[:, 1], action] = new_q
+
+    def _save_progress(self):
+        torch.save(self.Q, f"project/static/goal-q.pt")
+        torch.save(self.G, f"project/static/subgoals.pt")
+    
+    def select_action(self, state):
+        '''Select the best action based on currently explored goals'''
+        if self._random_condition():
+            return random.choice(self.actions)
+         # Choose the best action based on current goals
+        goals = torch.IntTensor(list(self.G))
+        sx, sy = tuple(state[i].expand(goals.shape[0]) for i in range(2))
+        qs = self.Q[sx, sy, goals[:, 0], goals[:, 1]]
+        max_av = torch.max(qs, 0)
+        action_values = {}
+        for a in self.actions:
+            if max_av.values[a] not in action_values:
+                action_values[max_av.values[a]] = [a]
+            else:
+                action_values[max_av.values[a]].append(a)
+
+        best_actions = action_values[max(action_values.keys())]
+        if len(best_actions) == 1:
+            return best_actions[0]
+        return random.choice(best_actions)
     
     def parse_compose(self, instr:str):
         full_goals = torch.where(self.env.terrain==2, 1, 0).to(dtype=torch.bool)
@@ -283,6 +300,168 @@ class GoalOrientedQLearning:
         
         print(f"Test completed: {steps} steps, Total reward: {total_reward:.2f}")
         self.env.visual()
+
+import torch.optim as optim
+from collections import deque
+from neuralnets import NAFNetwork, F
+
+class GoalOrientedNAF(GoalOrientedBase):
+    def __init__(self, room:Room, goal_resolution):
+        super().__init__(room)
+        self.goal_resolution = goal_resolution
+        # Set device
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        # Create networks
+        self.q_network = NAFNetwork(room.state_dim, room.state_dim, room.action_dim).to(self.device)
+        self.target_network = NAFNetwork(room.state_dim, room.state_dim, room.action_dim).to(self.device)
+        self.target_network.load_state_dict(self.q_network.state_dict())
+        self.target_network.eval()  # Target network doesn't need gradients
+        
+        # Optimizer
+        self.optimizer = optim.Adam(self.q_network.parameters(), lr=self.learning_rate)
+        
+        # Experience replay buffer
+        self.memory = deque(maxlen=100000)
+        self.batch_size = 64
+        
+        # Set of discovered goals
+        self.G = list[torch.Tensor]()
+        
+    def _update_target_network(self, tau=0.005):
+        """Soft update target network: θ_target = τ*θ_local + (1-τ)*θ_target"""
+        for target_param, local_param in zip(self.target_network.parameters(), self.q_network.parameters()):
+            target_param.data.copy_(tau * local_param.data + (1.0 - tau) * target_param.data)
+    
+    def select_action(self, state):
+        """Select action using epsilon-greedy policy with analytical maximum"""
+        if self._random_condition():
+            # Random action for exploration
+            return np.random.uniform(-1, 1, size=self.env.action_dim)
+        
+        with torch.no_grad():
+            state_tensor = state.unsqueeze(0).to(self.device)
+            
+            # For each goal, get the optimal action (μ) and its Q-value
+            best_q = float('-inf')
+            best_action = None
+            
+            for goal in self.G:
+                goal_tensor = goal.unsqueeze(0).to(self.device)
+                _, mu, _, V = self.q_network(state_tensor, goal_tensor)
+                
+                # In NAF, the mu is already the argmax of Q
+                # V is the maximum Q-value achievable for this state-goal pair
+                q_value = V.item()
+                
+                if q_value > best_q:
+                    best_q = q_value
+                    best_action = mu.squeeze().cpu().numpy()
+            
+            return best_action
+        
+    def _add_goal(self, state:torch.Tensor):
+        all_goals = torch.stack(self.G)
+        diff = all_goals - state
+        dist = torch.sqrt(torch.square(diff[:, 0]) + torch.square(diff[:, 1]))
+        if torch.any(dist < self.goal_resolution):
+            return  # skip the current goal state as close enough to some other goals
+        self.G.append(state)
+    
+    def _train(self, state, action, reward, next_state, done):
+        """Update Q-network from experiences in memory"""
+        for goal in self.G:
+            self.memory.append((state, goal, action, reward, next_state, done))
+
+        if len(self.memory) < self.batch_size:
+            return
+        
+        # Sample random batch from memory
+        batch = random.sample(self.memory, self.batch_size)
+        
+        states = []
+        goals = []
+        actions = []
+        rewards = []
+        next_states = []
+        terminals = []
+        
+        for state, goal, action, reward, next_state, is_terminal in batch:
+            states.append(state)
+            goals.append(goal)
+            actions.append(action)
+            rewards.append(reward)
+            next_states.append(next_state)
+            terminals.append(is_terminal)
+        
+        # Convert to tensors
+        states = torch.stack(states).to(self.device)
+        goals = torch.stack(goals).to(self.device)
+        actions = torch.stack(actions).to(self.device)
+        rewards = torch.stack(rewards).unsqueeze(1).to(self.device)
+        next_states = torch.stack(next_states).to(self.device)
+        terminals = torch.stack(terminals).unsqueeze(1).to(self.device)
+        
+        # Get current Q-values
+        current_q, _, _, _ = self.q_network(states, goals, actions)
+        
+        # Compute target Q-values
+        with torch.no_grad():
+            # For each state-goal pair, compute V(s',g) for each goal in G
+            target_q = rewards.clone()
+            
+            for i in range(len(batch)):
+                if not terminals[i].item():  # Non-terminal state
+                    # Convert goals set to tensor batch
+                    if self.G:
+                        goal_list = list(self.G)
+                        goal_batch = torch.FloatTensor([g for g in goal_list]).to(self.device)
+                        next_state_batch = next_states[i].unsqueeze(0).repeat(len(goal_list), 1)
+                        
+                        # Get value estimates for all goals
+                        next_values, _, _, _ = self.target_network(next_state_batch, goal_batch)
+                        max_next_v = torch.max(next_values)
+                        
+                        # Update target with discounted max value
+                        target_q[i] += self.gamma * max_next_v
+                    else:
+                        # No goals discovered yet
+                        pass
+                else:  # Terminal state
+                    # Check if terminal state equals goal
+                    goal_tensor = goals[i]
+                    next_state_tensor = next_states[i]
+                    
+                    # If this isn't the goal state, apply r_min penalty
+                    if not torch.allclose(next_state_tensor, goal_tensor, atol=1e-3):
+                        target_q[i] = torch.tensor([self.r_min], device=self.device)
+        
+        # Compute loss and update
+        self.optimizer.zero_grad()
+        loss = F.mse_loss(current_q, target_q)
+        loss.backward()
+        self.optimizer.step()
+        
+        # Soft update target network
+        self._update_target_network()
+        
+        return loss.item()
+    
+    def save(self, filename):
+        """Save model parameters"""
+        torch.save({
+            'q_network': self.q_network.state_dict(),
+            'target_network': self.target_network.state_dict(),
+            'optimizer': self.optimizer.state_dict()
+        }, filename)
+    
+    def load(self, filename):
+        """Load model parameters"""
+        checkpoint = torch.load(filename)
+        self.q_network.load_state_dict(checkpoint['q_network'])
+        self.target_network.load_state_dict(checkpoint['target_network'])
+        self.optimizer.load_state_dict(checkpoint['optimizer'])
+
 
 # Example usage
 if __name__ == "__main__":

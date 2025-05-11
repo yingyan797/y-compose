@@ -5,6 +5,8 @@ from PIL import Image
 class Room:
     def __init__(self, height=30, width=30):
         self.shape = (height, width)
+        self.state_dim = 2
+        self.action_dim = 1
         self.base = torch.ones((height, width), dtype=torch.bool)
         self._vis_size = (min(width*40, 2000), min(height*40, 2000))
         self._reward_lev = 100
