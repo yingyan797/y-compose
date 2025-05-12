@@ -3,10 +3,11 @@ import numpy as np
 from PIL import Image
 
 class Room:
-    def __init__(self, height=30, width=30):
+    def __init__(self, height=30, width=30, mode="discrete"):
         self.shape = (height, width)
         self.state_dim = 2
         self.action_dim = 1
+        self.is_discrete = mode == "discrete"
         self.base = torch.ones((height, width), dtype=torch.bool)
         self._vis_size = (min(width*40, 2000), min(height*40, 2000))
         self._reward_lev = 100
@@ -15,16 +16,6 @@ class Room:
         self.loc = torch.zeros(2, dtype=torch.int)
 
     def visual(self, animate=True):
-        # c_step = int(255 / (len(self.goals)-1)) if len(self.goals) > 1 else 0
-        # canvas = torch.unsqueeze(self.base, 2).repeat(1,1,3).numpy().astype(int)*75
-        # canvas[:, :, :2] = 0
-        # r = 0
-        # for goal in self.goals.values():
-        #     canvas[:, :, 0] += goal.numpy() * r
-        #     canvas[:, :, 1] += goal.numpy() * 80
-        #     r += c_step
-        # canvas = np.minimum(canvas, 255).astype(np.uint8)
-        # Image.fromarray(np.repeat(np.repeat(canvas, 10, axis=1), 10, axis=0), mode="RGB").resize(self._vis_size).save("project/static/room-goals.png")
         canvas = self.terrain.numpy().astype(np.uint8)*100
         imarr = np.repeat(np.repeat(canvas, 10, axis=1), 10, axis=0)
         Image.fromarray(imarr, mode="L").resize(self._vis_size).save("project/static/room-terrain.png")
@@ -32,60 +23,135 @@ class Room:
             frames = []
             for loc in self._trace:
                 frame = np.copy(canvas)
-                frame[loc[0], loc[1]] = [0, 200, 200]
-                frames.append(Image.fromarray(np.repeat(np.repeat(frame, 10, axis=1), 10, axis=0)))
+                frame[int(loc[0].item()), int(loc[1].item())] = [0, 200, 200]
+                frames.append(Image.fromarray(frame))
             frames[0].save("project/static/trace-animate.gif", save_all=True, append_images=frames[1:])
             
-
     def start(self, start_state=None, restriction=None):
+        def to_tensor(loc):
+            return torch.IntTensor(loc) if self.is_discrete else torch.FloatTensor(loc)
+
         if self.terrain is None:
             base = self.base.to(torch.uint8)*2
             masks = [goal.to(torch.uint8)+1 for goal in self.goals.values()]
             self.terrain = torch.minimum(base, torch.max(torch.stack(masks), dim=0).values)
             self._avail_locs = torch.nonzero(self.terrain).numpy().tolist()
         if start_state is not None:
-            loc = torch.IntTensor(start_state)
+            loc = to_tensor(start_state)
         elif restriction is not None:
             region = [(r,c) for r,c in self._avail_locs if restriction[r,c] > 0]
-            loc = torch.IntTensor(random.choice(region))
+            loc = to_tensor(random.choice(region))
         else:
-            loc = torch.IntTensor(random.choice(self._avail_locs))
+            loc = to_tensor(random.choice(self._avail_locs))
 
         self.loc = loc
         self._trace = [self.loc]
         return self.loc
 
-    def step(self, action:int, trace=False):
-        drn = [0,0]
-        match action:
-            case 0:
-                drn = [-1, 0]
-            case 1: 
-                drn = [-1, 1]
-            case 2:
-                drn = [0, 1]
-            case 3:
-                drn = [1, 1]
-            case 4:
-                drn = [1, 0]
-            case 5:
-                drn = [1, -1]
-            case 6:
-                drn = [0, -1]
-            case 7:
-                drn = [-1, -1]
-            case _:
-                raise ValueError("Not recognized action")
-        
-        new_loc = self.loc + torch.IntTensor(drn)
-        if new_loc[0] not in range(self.shape[0]) or new_loc[1] not in range(self.shape[1]) or self.terrain[new_loc[0], new_loc[1]] == 0:
-            return self.loc, 0, 0
+    def step(self, action, trace=False):
+        new_loc = [0,0]
+        label = 0
+        if self.is_discrete:
+            match action:   # 0..7
+                case 0:
+                    drn = [-1, 0]
+                case 1: 
+                    drn = [-1, 1]
+                case 2:
+                    drn = [0, 1]
+                case 3:
+                    drn = [1, 1]
+                case 4:
+                    drn = [1, 0]
+                case 5:
+                    drn = [1, -1]
+                case 6:
+                    drn = [0, -1]
+                case 7:
+                    drn = [-1, -1]
+                case _:
+                    raise ValueError("Not recognized action")
+            new_loc = self.loc + torch.IntTensor(drn)
+            row_in = new_loc[0] in range(self.shape[0])
+            col_in = new_loc[1] in range(self.shape[1])
+            if not (row_in and col_in):
+                return self.loc, 0, 0
+            label = self.terrain[new_loc[0], new_loc[1]]
+        else:
+            # -1, 1
+            ang = action * torch.pi
+            new_loc = self.loc + 10*torch.stack([-torch.cos(ang), torch.sin(ang)])
+            row_in = new_loc[0] >= 0 and new_loc[0] <= self.shape[0]
+            col_in = new_loc[1] >= 0 and new_loc[1] <= self.shape[1]
+            if not (row_in and col_in):
+                return self.loc, 0, 0
+            label = self.terrain[int(new_loc[0].item()), int(new_loc[1].item())]
+
         self.loc = new_loc
         if trace:
             self._trace.append(new_loc)
-        if self.terrain[new_loc[0], new_loc[1]] == 2:
+        if label == 2:
             return new_loc, self._reward_lev, 1
         return new_loc, 0, 0
+    
+    def parse_compose(self, instr:str):
+        full_goals = torch.where(self.terrain==2, 1, 0).to(dtype=torch.bool)
+        def task_and(masks):
+            masks = torch.stack(masks)
+            return torch.min(masks, dim=0).values
+        def task_or(masks):
+            masks = torch.stack(masks)
+            return torch.min(masks, dim=0).values
+        def task_not(mask):
+            neg = torch.logical_not(mask)
+            return torch.minimum(neg, full_goals)
+        comp_functions = {"and": task_and, "or": task_or, "not": task_not}
+        def parse_expr(expression:str) -> torch.Tensor:
+            if expression.startswith("'") and expression.endswith("'"):
+                return self.goals[expression[1:-1]]
+        
+            # Check for not, and, or operations
+            for op in ["not", "and", "or"]:
+                if expression.startswith(op + "(") and expression.endswith(")"):
+                    # Extract the content inside the parentheses
+                    content = expression[len(op)+1:-1]
+                    
+                    # For "not", we expect only one argument
+                    if op == "not":
+                        return task_not(parse_expr(content))
+                    
+                    # For "and" and "or", we split the arguments by comma
+                    # but we need to handle nested expressions correctly
+                    args = []
+                    current_arg = ""
+                    paren_level = 0
+                    
+                    for char in content:
+                        if char == '(' and (current_arg.endswith("not") or 
+                                        current_arg.endswith("and") or 
+                                        current_arg.endswith("or")):
+                            current_arg += char
+                            paren_level += 1
+                        elif char == '(':
+                            current_arg += char
+                            paren_level += 1
+                        elif char == ')':
+                            current_arg += char
+                            paren_level -= 1
+                        elif char == ',' and paren_level == 0:
+                            args.append(current_arg.strip())
+                            current_arg = ""
+                        else:
+                            current_arg += char
+                    
+                    if current_arg.strip():
+                        args.append(current_arg.strip())
+                    
+                    # Parse each argument recursively
+                    return comp_functions[op]([parse_expr(arg) for arg in args])
+            raise SyntaxError("Not recognizable compose instructions")
+        
+        return parse_expr(instr)
 
 def create_room(name):
     match name:
@@ -138,9 +204,9 @@ def load_room(name):
 
 if __name__ == "__main__":
     # room=load_room('saved_disc/color shape.pt')
-    room=load_room('saved_cont/road2goals.pt')
-    room.start()
-    room.visual()
+    # room=load_room('saved_cont/road2goals.pt')
+    # room.start()
+    # room.visual()
 
     # a = torch.ones((16,16,10,10,8))
     # pa = a.permute(0,1,4,2,3).reshape(16,16,8,-1)
@@ -148,5 +214,6 @@ if __name__ == "__main__":
     # indices = torch.tensor([12, 45, 79, 88], dtype=torch.int)
     # print(pa.index_select(3, indices).shape)
     
-
+    t = torch.IntTensor([1,2,4,4,0])
+    print(torch.max(t, 0))
 

@@ -72,6 +72,9 @@ class GoalOrientedBase:
         
         return rewards_per_episode
     
+    def q_compose(self, mask):
+        pass
+    
 class GoalOrientedQLearning(GoalOrientedBase):
     def __init__(self, room:Room, pretrained=False):
         super().__init__(room, pretrained)
@@ -130,65 +133,6 @@ class GoalOrientedQLearning(GoalOrientedBase):
         if len(best_actions) == 1:
             return best_actions[0]
         return random.choice(best_actions)
-    
-    def parse_compose(self, instr:str):
-        full_goals = torch.where(self.env.terrain==2, 1, 0).to(dtype=torch.bool)
-        def task_and(masks):
-            masks = torch.stack(masks)
-            return torch.min(masks, dim=0).values
-        def task_or(masks):
-            masks = torch.stack(masks)
-            return torch.min(masks, dim=0).values
-        def task_not(mask):
-            neg = torch.logical_not(mask)
-            return torch.minimum(neg, full_goals)
-        comp_functions = {"and": task_and, "or": task_or, "not": task_not}
-        def parse_expr(expression:str) -> torch.Tensor:
-            if expression.startswith("'") and expression.endswith("'"):
-                return self.env.goals[expression[1:-1]]
-        
-            # Check for not, and, or operations
-            for op in ["not", "and", "or"]:
-                if expression.startswith(op + "(") and expression.endswith(")"):
-                    # Extract the content inside the parentheses
-                    content = expression[len(op)+1:-1]
-                    
-                    # For "not", we expect only one argument
-                    if op == "not":
-                        return task_not(parse_expr(content))
-                    
-                    # For "and" and "or", we split the arguments by comma
-                    # but we need to handle nested expressions correctly
-                    args = []
-                    current_arg = ""
-                    paren_level = 0
-                    
-                    for char in content:
-                        if char == '(' and (current_arg.endswith("not") or 
-                                        current_arg.endswith("and") or 
-                                        current_arg.endswith("or")):
-                            current_arg += char
-                            paren_level += 1
-                        elif char == '(':
-                            current_arg += char
-                            paren_level += 1
-                        elif char == ')':
-                            current_arg += char
-                            paren_level -= 1
-                        elif char == ',' and paren_level == 0:
-                            args.append(current_arg.strip())
-                            current_arg = ""
-                        else:
-                            current_arg += char
-                    
-                    if current_arg.strip():
-                        args.append(current_arg.strip())
-                    
-                    # Parse each argument recursively
-                    return comp_functions[op]([parse_expr(arg) for arg in args])
-            raise SyntaxError("Not recognizable compose instructions")
-        
-        return parse_expr(instr)
             
     def q_compose(self, mask):
         all_goals = torch.IntTensor([r*self.env.shape[1]+c 
@@ -322,7 +266,7 @@ class GoalOrientedNAF(GoalOrientedBase):
         self.optimizer = optim.Adam(self.q_network.parameters(), lr=self.learning_rate)
         
         # Experience replay buffer
-        self.memory = deque(maxlen=100000)
+        self.memory = deque(maxlen=65536)
         self.batch_size = 64
         
         # Set of discovered goals
@@ -333,33 +277,21 @@ class GoalOrientedNAF(GoalOrientedBase):
         for target_param, local_param in zip(self.target_network.parameters(), self.q_network.parameters()):
             target_param.data.copy_(tau * local_param.data + (1.0 - tau) * target_param.data)
     
-    def select_action(self, state):
+    def select_action(self, state:torch.Tensor):
         """Select action using epsilon-greedy policy with analytical maximum"""
         if self._random_condition():
             # Random action for exploration
             return np.random.uniform(-1, 1, size=self.env.action_dim)
         
         with torch.no_grad():
-            state_tensor = state.unsqueeze(0).to(self.device)
-            
-            # For each goal, get the optimal action (μ) and its Q-value
-            best_q = float('-inf')
-            best_action = None
-            
-            for goal in self.G:
-                goal_tensor = goal.unsqueeze(0).to(self.device)
-                _, mu, _, V = self.q_network(state_tensor, goal_tensor)
-                
-                # In NAF, the mu is already the argmax of Q
-                # V is the maximum Q-value achievable for this state-goal pair
-                q_value = V.item()
-                
-                if q_value > best_q:
-                    best_q = q_value
-                    best_action = mu.squeeze().cpu().numpy()
-            
-            return best_action
-        
+            states = state.unsqueeze(0).expand(len(self.G), 1).to(self.device)
+            goals = torch.stack(self.G).to(self.device)
+
+            _, mu, _, V = self.q_network(states, goals)
+            best_q = torch.max(V, 0)
+
+            return mu[best_q.indices.item()].squeeze().cpu().numpy()
+    
     def _add_goal(self, state:torch.Tensor):
         all_goals = torch.stack(self.G)
         diff = all_goals - state
@@ -462,6 +394,11 @@ class GoalOrientedNAF(GoalOrientedBase):
         self.target_network.load_state_dict(checkpoint['target_network'])
         self.optimizer.load_state_dict(checkpoint['optimizer'])
 
+    def q_compose(self, mask):
+        dgoals = torch.IntTensor(torch.stack(self.G))
+        indices = torch.nonzero(mask[dgoals[:,0], dgoals[:,1]]).squeeze(1)
+        all_goals = torch.stack(self.G).index_select(0, indices)
+        return all_goals
 
 # Example usage
 if __name__ == "__main__":
