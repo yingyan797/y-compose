@@ -1,7 +1,7 @@
 import numpy as np
 import os, subprocess
 from ltlf2dfa.parser.ltlf import LTLfParser
-from ltlf2dfa.ltlf2dfa import MonaProgram, ter2symb, simplify_guard, symbols
+from ltlf2dfa.ltlf2dfa import MonaProgram, ter2symb, simplify_guard, symbols, output2dot
 
 CDIR = os.getcwd()
 MONA_PATH = os.path.join(CDIR, "refer_code", "mona.exe")
@@ -69,7 +69,9 @@ def parse_dfa(p_formula, dfa_text):
             condition, target = transition_part.split("->")
             condition = condition.strip()
             state_j = int(target.replace("state", "").strip())
-            
+
+            if state_i == 0 and state_j == 1:
+                continue            
             result['transitions'].append((state_i, condition, state_j))
 
             if free_variables:
@@ -114,7 +116,7 @@ def formula_to_dfa(ifml, file_name):
         with open(opath, "r") as f:
             mona_output = f.read()
 
-        return parse_dfa(p_formula, mona_output)
+        return parse_dfa(p_formula, mona_output), mona_output
     return False
 
 if __name__ == "__main__":

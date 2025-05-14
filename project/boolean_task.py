@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import random
-from reach_avoid_tabular import torch, Room, create_room, load_room
+from reach_avoid_tabular import torch, Room, create_room, load_room, Image
 import matplotlib.pyplot as plt
 from matplotlib.patches import Arrow, Rectangle
 
@@ -281,23 +281,23 @@ class GoalOrientedNAF(GoalOrientedBase):
         """Select action using epsilon-greedy policy with analytical maximum"""
         if self._random_condition():
             # Random action for exploration
-            return np.random.uniform(-1, 1, size=self.env.action_dim)
+            return 2*torch.rand(self.env.action_dim)-1
         
         with torch.no_grad():
-            states = state.unsqueeze(0).expand(len(self.G), 1).to(self.device)
+            states = state.unsqueeze(0).expand(len(self.G),2).to(self.device)
             goals = torch.stack(self.G).to(self.device)
-
             _, mu, _, V = self.q_network(states, goals)
             best_q = torch.max(V, 0)
 
-            return mu[best_q.indices.item()].squeeze().cpu().numpy()
+            return mu[best_q.indices.item()].cpu()
     
     def _add_goal(self, state:torch.Tensor):
-        all_goals = torch.stack(self.G)
-        diff = all_goals - state
-        dist = torch.sqrt(torch.square(diff[:, 0]) + torch.square(diff[:, 1]))
-        if torch.any(dist < self.goal_resolution):
-            return  # skip the current goal state as close enough to some other goals
+        if self.G:
+            all_goals = torch.stack(self.G)
+            diff = all_goals - state
+            dist = torch.sqrt(torch.square(diff[:, 0]) + torch.square(diff[:, 1]))
+            if torch.any(dist < self.goal_resolution):
+                return  # skip the current goal state as close enough to some other goals
         self.G.append(state)
     
     def _train(self, state, action, reward, next_state, done):
@@ -330,9 +330,9 @@ class GoalOrientedNAF(GoalOrientedBase):
         states = torch.stack(states).to(self.device)
         goals = torch.stack(goals).to(self.device)
         actions = torch.stack(actions).to(self.device)
-        rewards = torch.stack(rewards).unsqueeze(1).to(self.device)
+        rewards = torch.Tensor(rewards).unsqueeze(1).to(self.device)
         next_states = torch.stack(next_states).to(self.device)
-        terminals = torch.stack(terminals).unsqueeze(1).to(self.device)
+        terminals = torch.Tensor(terminals).unsqueeze(1).to(self.device)
         
         # Get current Q-values
         current_q, _, _, _ = self.q_network(states, goals, actions)
@@ -399,18 +399,30 @@ class GoalOrientedNAF(GoalOrientedBase):
         indices = torch.nonzero(mask[dgoals[:,0], dgoals[:,1]]).squeeze(1)
         all_goals = torch.stack(self.G).index_select(0, indices)
         return all_goals
+    
+    def view_goals(self):
+        dgoals = torch.IntTensor(torch.stack(self.G))
+        imarr = np.ones(self.env.shape, dtype=np.uint8)
+        for loc in dgoals.numpy().tolist():
+            imarr[loc[0], loc[1]] = 0
+        
+        Image.fromarray(imarr, "L").save("project/static/cont-goals.png")
 
 # Example usage
 if __name__ == "__main__":
     # Initialize the environment and agent
-    agent = GoalOrientedQLearning(
-        room=load_room('saved_disc/color shape.pt'),
-        pretrained=False,
+    # agent = GoalOrientedQLearning(
+    #     room=load_room('saved_disc/color shape.pt'),
+    #     pretrained=False,
+    # )
+    agent = GoalOrientedNAF(
+        room=load_room('saved_cont', 'two_goals.pt'),
+        goal_resolution=5
     )
     
     # Train the agent
     agent.env.start()
-    # rewards = agent.train(num_episodes=401, max_steps_per_episode=100)
+    rewards = agent.train_episodes(num_episodes=401, max_steps_per_episode=100)
     # mask = agent.parse_compose("and(not('goal-2'), 'goal-1')")
     # mask = agent.parse_compose("not(and('goal-1', 'goal-2'))")
     # agent.visualize_policy_with_arrows(mask, "not-(g1 and g2")

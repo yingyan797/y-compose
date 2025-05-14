@@ -9,26 +9,23 @@
             float: left;
             width: 50%;
         }
-
-        /* Clear floats after the columns */
-        .row:after {
-            content: "";
-            display: table;
-            clear: both;
-        }
-
-        .annote:hover {
-            border: dashed;
+        .latent{
+            display: none;
+            border-radius: 5px;
+        }.latent:hover {
+            background-color: lightgreen;
             cursor: pointer;
-            font-weight: 700;
         }
     </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3-graphviz/5.0.2/d3-graphviz.min.js"></script>
 </head>
 <body>
     <h2 style="background-color: lightgreen;">Draw LTL to DFA | <a href="/ltl">reset</a> | <a href="/">Home</a></h2>
     <table style="margin: 10px; border-bottom: dashed; background-color: azure;">
         <tr><th class="annote" id="cfml" rowspan="2">Formula</th><td rowspan="2" colspan="3">
-            <textarea id="ifml" rows="4" style="width: 95%;"></textarea></td>
+            <textarea id="ifml" rows="4" style="width: 95%;"></textarea><br>
+            <input type="checkbox" id="draw-dfa">Draw diagram</td>
             <th>Initial state</th><td id="initial">...</td></tr>
         <tr><th>Accepting states</th><td id="accepting">...</td></tr>
         <tr><th>Save file</th><td><input type="text" id="fname" value="example" minlength="1"> 
@@ -39,16 +36,13 @@
             <th>Rejecting states</th><td id="rejecting">...</td></tr>
     </table>
     Transition table for Formula: <b id="p_formula" style="font-size: large; color: blueviolet;"></b> 
-    <button id="write">Write back</button><button id="copy">Copy</button>
-    <div class="row" style="border: dashed; padding-top: 5px;">
-        <div class="column">
-            <table id="transition"></table>
-        </div><div class="column">
-            <table id="matrix"></table>
-            <button id="clear-color" style="margin-top: 5px;">Clear color annotation</button><br>
-            <iframe id="ltlf2dfa" src="http://ltlf2dfa.diag.uniroma1.it/" width="97%" height="500px"></iframe>
-        </div>
-    </div>
+    <button class="latent" id="write">Write back</button><button class="latent" id="copy">Copy</button>
+    <table id="resultTable" style="padding-top: 5px; display: none;">
+        <tr><td rowspan="2"><table id="transition"></table>
+            <button class="latent" id="clear-color">Clear color annotation</button></td>
+        <td><table id="matrix"></table></td></tr>
+        <tr><td><div id="diagram" style="display: none;"></div><button class="latent" id="resetZoom">Reset zooming</button></td>
+    </tr></table><iframe id="ltlf2dfa" src="http://ltlf2dfa.diag.uniroma1.it/" width="97%" height="500px"></iframe>
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
@@ -59,6 +53,9 @@
             const formulaBox = document.getElementById('ifml');
             const formulaClear = document.getElementById('cfml');
             const p_formula = document.getElementById("p_formula");
+            const clearColorButton = document.getElementById("clear-color");
+            const drawDiagram = document.getElementById("draw-dfa");
+            const diagram = document.getElementById("diagram");
 
             function create_table(data) {
                 let trans_html = "";
@@ -119,22 +116,67 @@
                         })
                     });
                 }
+                if (drawDiagram.checked) {
+                    renderDFA(data["diagram_code"]);
+                    diagram.style.display = "block";
+                } else {
+                    diagram.style.display = "none";
+                }
 
-                document.getElementById("clear-color").addEventListener('click', function() {
+                clearColorButton.addEventListener('click', function() {
                     document.querySelectorAll("[id^='pair_']").forEach((elem, i) => {
                         elem.style.backgroundColor = 'white';
                     });
                 })
+                clearColorButton.style.display = "block";
+                writeButton.style.display = "inline";
+                copyButton.style.display = "inline";
+                document.getElementById("resultTable").style.display = "block";
+            }
+
+            function renderDFA(dicode) {
+                // Initialize the graphviz renderer
+                const graphviz = d3.select("#diagram")
+                    .graphviz()
+                    .zoom(true)
+                    .fit(true)
+                    .attributer(function(d) {
+                        // Add interactivity to nodes
+                        if (d.tag === "node") {
+                            d.attributes.cursor = "pointer";
+                            d.attributes.onclick = `nodeClicked('${d.key}')`;
+                        }
+                    })
+                    .on("end", function() {
+                        // This runs after the graph is rendered
+                        console.log("Graph rendering complete");
+                    });
+
+                // Render the graph
+                graphviz.renderDot(dicode);
+                document.getElementById("resetZoom").addEventListener("click", function() {
+                    graphviz.resetZoom();
+                });
+
+                // Function to handle node clicks
+                function nodeClicked(nodeId) {
+                    console.log("Node clicked:", nodeId);
+                    alert(`You clicked on node ${nodeId}`);
+                    // You can add more interactive behavior here
+                }
             }
 
             submitButton.addEventListener('click', function() {
-                const formData = new FormData();
                 const fname = document.getElementById("fname").value;
                 const fsel = document.getElementById("fsel");
-                formData.append('formula', formulaBox.value);
-                formData.append('fname', fname);
                 fetch('/create_dfa',
-                    {method: 'POST', body: formData}
+                    {method: 'POST', headers: {
+                            'Content-Type': 'application/json'
+                        }, body: JSON.stringify({
+                            'formula': formulaBox.value,
+                            'fname': fname,
+                            'visual': drawDiagram.checked
+                        })}
                 ).then(response => response.json()).then(data => {
                     if (data.success) {
                         create_table(data);
@@ -146,7 +188,7 @@
                             fsel.appendChild(option);
                         }
                     } else {
-                        alert('Error creating dfa table: ' + data.error);
+                        alert('Error creating dfa table: ');
                     }
                 }).catch(error => {
                     console.error('Error:', error);
@@ -156,7 +198,9 @@
 
             loadButton.addEventListener('click', function() {
                 const fname = document.getElementById("fsel").value;
-                fetch('/load_dfa', {method: "POST", body:{fname: fname}})
+                fetch('/load_dfa', {method: "POST",headers: {
+                            'Content-Type': 'application/json'
+                        }, body: JSON.stringify({'fname': fname, 'visual':drawDiagram.checked})})
                 .then(response => response.json()).then(data => {
                     if (data.success) {
                         create_table(data);
@@ -173,14 +217,14 @@
                 if (p_formula.innerHTML != "") {
                     formulaBox.value = p_formula.innerText;
                 }
-            })
+            });
             copyButton.addEventListener('click', function() {
                 navigator.clipboard.writeText(p_formula.innerText);
-            })
+            });
 
             formulaClear.addEventListener('click', function() {
                 formulaBox.value = "";
-            })
+            });
         })
     </script>
 </body>

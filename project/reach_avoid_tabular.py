@@ -3,11 +3,11 @@ import numpy as np
 from PIL import Image
 
 class Room:
-    def __init__(self, height=30, width=30, mode="discrete"):
+    def __init__(self, height=30, width=30, mode="saved_disc"):
         self.shape = (height, width)
         self.state_dim = 2
         self.action_dim = 1
-        self.is_discrete = mode == "discrete"
+        self.is_discrete = mode == "saved_discrete"
         self.base = torch.ones((height, width), dtype=torch.bool)
         self._vis_size = (min(width*40, 2000), min(height*40, 2000))
         self._reward_lev = 100
@@ -18,7 +18,7 @@ class Room:
     def visual(self, animate=True):
         canvas = self.terrain.numpy().astype(np.uint8)*100
         imarr = np.repeat(np.repeat(canvas, 10, axis=1), 10, axis=0)
-        Image.fromarray(imarr, mode="L").resize(self._vis_size).save("project/static/room-terrain.png")
+        Image.fromarray(imarr, mode="L").resize(self._vis_size).save("project/static/room-terrain.png")            
         if animate and len(self._trace) > 1:
             frames = []
             for loc in self._trace:
@@ -79,7 +79,7 @@ class Room:
             label = self.terrain[new_loc[0], new_loc[1]]
         else:
             # -1, 1
-            ang = action * torch.pi
+            ang = torch.squeeze(action * torch.pi)
             new_loc = self.loc + 10*torch.stack([-torch.cos(ang), torch.sin(ang)])
             row_in = new_loc[0] >= 0 and new_loc[0] <= self.shape[0]
             col_in = new_loc[1] >= 0 and new_loc[1] <= self.shape[1]
@@ -185,11 +185,11 @@ def create_room(name):
 
     return room
 
-def load_room(name):
-    fn = f"project/static/{name}"
+def load_room(mode, name):
+    fn = f"project/static/{mode}/{name}"
     project = torch.load(fn)
     h, w = tuple(project['dim'])
-    room = Room(h, w)
+    room = Room(h, w, mode)
     layers = {}
     for layer in project["terrain"]:
         goal = layer["name"]

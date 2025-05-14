@@ -3,7 +3,7 @@ import json, os, torch, io, base64
 import numpy as np
 from PIL import Image
 from datetime import datetime
-from ltl_util import formula_to_dfa, parse_dfa
+from ltl_util import formula_to_dfa, parse_dfa, output2dot
 
 app = Flask(__name__)
 
@@ -132,16 +132,15 @@ def ltl_formulation():
 @app.route('/create_dfa', methods=["POST"])
 def create_dfa():
     """Load grid data from a saved file"""
-    try:
-        ifml = request.form.get("formula")
-        fname = request.form.get("fname")
-        out = formula_to_dfa(ifml, fname)
-        if isinstance(out, dict):
-            res = {'success': True}
-            res.update(out)
-            return jsonify(res)
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+    ifml = request.json.get("formula")
+    fname = request.json.get("fname")
+    out = formula_to_dfa(ifml, fname)
+    if isinstance(out, tuple):
+        res = {'success': True}
+        res.update(out[0])
+        if (request.json.get("visual")):
+            res["diagram_code"] = output2dot(out[1])
+        return jsonify(res)
 
 @app.route('/load_dfa', methods=["POST"])
 def load_dfa():
@@ -155,6 +154,8 @@ def load_dfa():
         return jsonify({'success': False, 'error': str(e)})
     res = {"success": True}
     res.update(parse_dfa(formula, mona_out))
+    if (request.json.get("visual")):
+        res["diagram_code"] = output2dot(mona_out)
     return jsonify(res)
 
 if __name__ == '__main__':

@@ -67,8 +67,8 @@ class NAFNetwork(nn.Module):
         L[:, tril_indices[0], tril_indices[1]] = L_vector
         
         # Make diagonal elements positive with softplus
-        diagonal_indices = torch.diag_indices(self.action_dim)
-        L[:, diagonal_indices[0], diagonal_indices[1]] = F.softplus(L[:, diagonal_indices[0], diagonal_indices[1]])
+        diagonal_indices = torch.IntTensor([[i,i] for i in range(self.action_dim)]).to(device=x.device)
+        L[:, diagonal_indices[:,0], diagonal_indices[:,1]] = F.softplus(L[:, diagonal_indices[:,0], diagonal_indices[:,1]])
         
         # Compute precision matrix P = L*L^T (positive definite)
         P = torch.bmm(L, L.transpose(1, 2))
