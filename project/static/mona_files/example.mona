@@ -1,5 +1,5 @@
-#(F(a) T F(b));
+#(task1 T task2);
 var2 $ where ~ex1 p where true: p notin $ & p+1 in $;
 allpos $;
-var2 A, B;
-(ex1 v_10: v_10 in $ & 0<=v_10&v_10<=max($) & (ex1 v_11: v_11 in $ & 0<=v_11&v_11<=v_10 & (v_11 in A) & (all1 v_12: v_12 in $ & 0<=v_12&v_12<v_11 => true)) & (ex1 v_13: v_13 in $ & v_10<=v_13&v_13<=max($) & (v_13 in B) & (all1 v_14: v_14 in $ & v_10<=v_14&v_14<v_13 => true)));
+var2 TASK1, TASK2;
+(ex1 v_1: v_1 in $ & 0<=v_1&v_1<=max($) & (0 in TASK1) & (v_1 in TASK2));

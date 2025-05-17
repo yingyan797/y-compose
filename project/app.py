@@ -126,8 +126,7 @@ def deltrn(mode):
 
 @app.route('/ltl')
 def ltl_formulation():
-    files = [fname[:-5] for fname in os.listdir(MONA_DIR)]
-    return render_template("ltl.html", files=files)
+    return render_template("ltl.html")
 
 @app.route('/create_dfa', methods=["POST"])
 def create_dfa():
@@ -157,6 +156,18 @@ def load_dfa():
     if (request.json.get("visual")):
         res["diagram_code"] = output2dot(mona_out)
     return jsonify(res)
+
+@app.route('/del_dfa', methods=["POST"])
+def del_dfa():
+    fname = request.json.get("fname")
+    mona_path = MONA_DIR+f"/{fname}.mona"
+    dfa_path = DFA_DIR+f"/{fname}.dfa"
+    if os.path.isfile(mona_path):
+        os.remove(mona_path)
+    if os.path.isfile(dfa_path):
+        os.remove(dfa_path)
+    
+    return jsonify({'success': True})
 
 if __name__ == '__main__':
     app.run("127.0.0.1", 5002, debug=True)

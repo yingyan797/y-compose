@@ -1,10 +1,10 @@
 import numpy as np
 import os, subprocess
-from ltlf2dfa.parser.ltlf import LTLfParser
-from ltlf2dfa.ltlf2dfa import MonaProgram, ter2symb, simplify_guard, symbols, output2dot
+from ltlf_tools.parser.ltlf import LTLfParser
+from ltlf_tools.ltlf2dfa import MonaProgram, ter2symb, simplify_guard, symbols, output2dot
 
-CDIR = os.getcwd()
-MONA_PATH = os.path.join(CDIR, "refer_code", "mona.exe")
+CDIR = os.getcwd()  # .../y-compose/
+MONA_PATH = f"{CDIR}/project/ltlf_tools/mona.exe"
 
 def parse_dfa(p_formula, dfa_text):
     """
@@ -121,3 +121,4 @@ def formula_to_dfa(ifml, file_name):
 
 if __name__ == "__main__":
     print(formula_to_dfa("(a U b) & (c U d)", "and_until"))
+    # print(MONA_PATH)

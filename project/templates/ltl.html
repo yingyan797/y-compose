@@ -16,26 +16,35 @@
             background-color: lightgreen;
             cursor: pointer;
         }
+        .remove:hover {
+            background-color: salmon;
+            cursor: pointer;
+        }
+        #diagram {
+            width: 97%;
+            border: 1px dashed;
+        }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3-graphviz/5.0.2/d3-graphviz.min.js"></script>
 </head>
-<body>
-    <h2 style="background-color: lightgreen;">Draw LTL to DFA | <a href="/ltl">reset</a> | <a href="/">Home</a></h2>
+<body style="background-color: lightcyan;">
+    <h2>Draw LTL to DFA | <a href="/ltl">reset</a> | <a href="/">Home</a></h2>
     <table style="margin: 10px; border-bottom: dashed; background-color: azure;">
-        <tr><th class="annote" id="cfml" rowspan="2">Formula</th><td rowspan="2" colspan="3">
-            <textarea id="ifml" rows="4" style="width: 95%;"></textarea><br>
-            <input type="checkbox" id="draw-dfa">Draw diagram</td>
-            <th>Initial state</th><td id="initial">...</td></tr>
+        <tr><th class="annote" id="cfml" rowspan="2">Formula</th><td rowspan="2">
+            <textarea id="ifml" rows="4" style="width: 95%;"></textarea><br></td>
+            <th>Initial state</th><td id="initial">...</td>
+            <td id="msgbox" rowspan="3" style="width: 100px;"></td></tr>
         <tr><th>Accepting states</th><td id="accepting">...</td></tr>
-        <tr><th>Save file</th><td><input type="text" id="fname" value="example" minlength="1"> 
-            <button id="create">Create DFA ></button></td>
-            <th>Load file</th><td><select id="fsel">{% for file in files %}
-                    <option value="{{file}}">{{file}}</option>
-                {% endfor %}</select><button id="load">Load DFA</button></td>
+        <tr><th>File</th><td>
+            <input type="file" id="ipf" oninput="load_file()">
+            <input type="text" id="fname" value="example" minlength="1"> 
+            <input type="checkbox" id="draw-dfa">Draw diagram
+            <button id="load">Load DFA</button><button id="create">Create DFA</button>
+            <button id="delete" class="remove">Delete</button></td>
             <th>Rejecting states</th><td id="rejecting">...</td></tr>
     </table>
-    Transition table for Formula: <b id="p_formula" style="font-size: large; color: blueviolet;"></b> 
+    <i>Transition table for Formula: </i><b id="p_formula" style="font-size: large; color: blueviolet;"></b> 
     <button class="latent" id="write">Write back</button><button class="latent" id="copy">Copy</button>
     <table id="resultTable" style="padding-top: 5px; display: none;">
         <tr><td rowspan="2"><table id="transition"></table>
@@ -45,9 +54,15 @@
     </tr></table><iframe id="ltlf2dfa" src="http://ltlf2dfa.diag.uniroma1.it/" width="97%" height="500px"></iframe>
 
     <script>
+        function load_file() {
+            const fpath = document.getElementById("ipf").value;
+            const fname = fpath.split("\\")[2].split(".")[0];
+            document.getElementById("fname").value = fname;
+        }
         document.addEventListener('DOMContentLoaded', function() {
             const loadButton = document.getElementById('load');
             const submitButton = document.getElementById('create');
+            const delButton = document.getElementById('delete');
             const writeButton = document.getElementById('write');
             const copyButton = document.getElementById('copy');
             const formulaBox = document.getElementById('ifml');
@@ -56,6 +71,7 @@
             const clearColorButton = document.getElementById("clear-color");
             const drawDiagram = document.getElementById("draw-dfa");
             const diagram = document.getElementById("diagram");
+            const msgbox = document.getElementById("msgbox");
 
             function create_table(data) {
                 let trans_html = "";
@@ -110,7 +126,7 @@
                                 if (entry.style.backgroundColor != 'lightgoldenrodyellow') {
                                     entry.style.backgroundColor = 'lightgoldenrodyellow';
                                 } else {
-                                    entry.style.backgroundColor = 'white';
+                                    entry.style.backgroundColor = 'lightcyan';
                                 }
                             })
                         })
@@ -125,12 +141,13 @@
 
                 clearColorButton.addEventListener('click', function() {
                     document.querySelectorAll("[id^='pair_']").forEach((elem, i) => {
-                        elem.style.backgroundColor = 'white';
+                        elem.style.backgroundColor = 'lightcyan';
                     });
                 })
                 clearColorButton.style.display = "block";
                 writeButton.style.display = "inline";
                 copyButton.style.display = "inline";
+                msgbox.innerHTML = "Table created for formula "+data.formula.substring(0, 30);
                 document.getElementById("resultTable").style.display = "block";
             }
 
@@ -154,7 +171,9 @@
 
                 // Render the graph
                 graphviz.renderDot(dicode);
-                document.getElementById("resetZoom").addEventListener("click", function() {
+                const zoomBtn = document.getElementById("resetZoom")
+                zoomBtn.style.display = "block";
+                zoomBtn.addEventListener("click", function() {
                     graphviz.resetZoom();
                 });
 
@@ -168,7 +187,6 @@
 
             submitButton.addEventListener('click', function() {
                 const fname = document.getElementById("fname").value;
-                const fsel = document.getElementById("fsel");
                 fetch('/create_dfa',
                     {method: 'POST', headers: {
                             'Content-Type': 'application/json'
@@ -180,13 +198,6 @@
                 ).then(response => response.json()).then(data => {
                     if (data.success) {
                         create_table(data);
-                        const entry = fsel.querySelector(`option[value="${fname}"]`);
-                        if (! entry) {
-                            const option = document.createElement('option');
-                            option.value = fname;
-                            option.textContent = fname;
-                            fsel.appendChild(option);
-                        }
                     } else {
                         alert('Error creating dfa table: ');
                     }
@@ -197,7 +208,7 @@
             });
 
             loadButton.addEventListener('click', function() {
-                const fname = document.getElementById("fsel").value;
+                const fname = document.getElementById("fname").value;
                 fetch('/load_dfa', {method: "POST",headers: {
                             'Content-Type': 'application/json'
                         }, body: JSON.stringify({'fname': fname, 'visual':drawDiagram.checked})})
@@ -212,6 +223,18 @@
                     alert('An error occurred while creating DFA table.');
                 });
             });
+
+            delButton.addEventListener('click', function() {
+                const fname = document.getElementById("fname").value;
+                fetch('/del_dfa', {method: "POST",headers: {
+                            'Content-Type': 'application/json'
+                        }, body: JSON.stringify({'fname': fname})})
+                .then(response => {
+                    if (response.ok) {
+                        msgbox.innerHTML = "Deleted file "+fname
+                    }
+                })
+            })
 
             writeButton.addEventListener('click', function() {
                 if (p_formula.innerHTML != "") {
