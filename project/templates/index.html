@@ -68,16 +68,20 @@
             margin-right: 10px;
         }
         button {
-            background-color: cornflowerblue;
-            color: white;
+            background-color: lightgreen;
+            color: #333;
             border: none;
             padding: 8px 12px;
             border-radius: 4px;
             cursor: pointer;
             font-size: 14px;
         }
+        button.selected {
+            color: blue;
+            border: solid;
+        }
         button:hover {
-            background-color: blueviolet;
+            background-color: cornflowerblue;
         }
         button.remove-layer {
             border: dashed;
@@ -142,7 +146,7 @@
                 Brush size: <input type="range" id="brushSize" min="1" max="100" value="10" style="height: 4px;">
                 <button id="undo"><-Undo</button>
                 <button id="redo">Redo-></button>
-            </label> | <button id="penEraser">Draw color</button> 
+            </label> | <button id="penEraser">Draw ink</button> 
             <button class="remove-layer" id="clearLayer">Clear layer</button> 
             <button class="remove-layer" id="clear">Restart</button>
             Terrain name:<input type="file" style="width: 80px;" id="ipf" accept=".pt" oninput="uploadFile()"> 
@@ -198,6 +202,7 @@
         };
         state.layers.forEach((layer) => {
             layer.visible = true; 
+            layer.always = false; 
             layer.data = {}; 
             let canvasLayer = document.createElement('canvas');
             canvasLayer.width = state.canvas.width;
@@ -371,7 +376,16 @@
                 const layerName = document.createElement('span');
                 layerName.className = 'layer-name';
                 layerName.textContent = layer.name;
-                
+
+                const taskType = document.createElement('input');
+                taskType.type = "checkbox";
+                taskType.id = "taskType-"+index;
+                taskType.checked = layer.always;
+                const label = document.createElement('label');
+                label.style.borderBottom = "solid";
+                label.style.marginRight = "10px";
+                label.innerHTML = "Always";
+
                 const removeBtn = document.createElement('button');
                 removeBtn.className = 'remove-layer';
                 removeBtn.textContent = 'Remove';
@@ -381,10 +395,12 @@
                 layerItem.appendChild(colorDisplay);
                 layerItem.appendChild(visibilityCheckbox);
                 layerItem.appendChild(layerName);
+                layerItem.appendChild(taskType);
+                layerItem.appendChild(label);
                 layerItem.appendChild(removeBtn);
                 
                 layerItem.addEventListener('click', (e) => {
-                    if (e.target !== removeBtn && e.target !== visibilityCheckbox) {
+                    if (![removeBtn, taskType, visibilityCheckbox].includes(e.target )) {
                         setActiveLayer(index);
                     }
                 });
@@ -546,19 +562,19 @@
 
             penEraserBtn.addEventListener('click', () => {
                 if (penEraserBtn.innerHTML[0] == "D") {
-                    penEraserBtn.innerHTML = "[Eraser]";
-                    penEraserBtn.style.color = "lightgreen";
+                    penEraserBtn.innerHTML = "Eraser";
+                    penEraserBtn.className = "selected";
                 } else {
                     penEraserBtn.innerHTML = "Draw color";
-                    penEraserBtn.style.color = "white";
+                    penEraserBtn.className = ""
                 }
             }); singleRangeBtn.addEventListener('click', () => {
-                if (singleRangeBtn.innerHTML[0] != "S") {
-                    singleRangeBtn.innerHTML = "Single cell";
-                    singleRangeBtn.style.color = "white";
+                if (singleRangeBtn.innerHTML[0] == "S") {
+                    singleRangeBtn.innerHTML = "Rectangle";
+                    singleRangeBtn.className = "selected";
                 } else {
-                    singleRangeBtn.innerHTML = "[Rectangle]";
-                    singleRangeBtn.style.color = "lightgreen";
+                    singleRangeBtn.innerHTML = "Single cell";
+                    singleRangeBtn.className = "";
                 }
             })
 
@@ -629,6 +645,7 @@
                                     ctxl.drawImage(img, 0, 0, state.canvas.width, state.canvas.height)
                                 };
                                 img.src = `data:image/png;base64,${image.image}`;
+                                document.getElementById("taskType-"+i).checked = image.always;
                             } else {
                                 console.log("index error");
                             }
@@ -649,6 +666,7 @@
                         data.grid.forEach((layer, i) => {
                             if (layer.name == state.layers[i].name) {
                                 state.layers[i].data = layer.data;
+                                document.getElementById("taskType-"+i).checked = layer.always;                           
                             }
                         })
                         setupGrid(data.rows, data.cols);
@@ -663,9 +681,10 @@
                     const requestBody = {fname:fnameBox.value+".pt", dim: [state.canvas.height, state.canvas.width]}; 
                     const terrain = [];
 
-                    state.layers.forEach((layer) => {
+                    state.layers.forEach((layer, index) => {
                         const imageData = layer.canvasLayer.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
-                        terrain.push({name: layer.name, color: layer.color, mask: imageData})
+                        const always = document.getElementById("taskType-"+index).checked;
+                        terrain.push({name: layer.name, color: layer.color, always: always, mask: imageData})
                     })
                     
                     // Create request body
@@ -693,8 +712,9 @@
                     });
                 } else {
                     const requestBody = {fname:fnameBox.value+".pt", dim: [state.grid.rows, state.grid.cols]};
-                    requestBody["terrain"] = state.layers.map((layer) => {
-                        return {name: layer.name, color: layer.color, mask: layer.data};
+                    requestBody["terrain"] = state.layers.map((layer, index) => {
+                        const always = document.getElementById("taskType-"+index).checked;
+                        return {name: layer.name, color: layer.color, always: always, mask: layer.data};
                     });
                     fetch('/save_grid', {method: 'POST', 
                         headers: {

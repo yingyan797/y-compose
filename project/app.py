@@ -47,7 +47,7 @@ def get_images():
             img.save(buffer, format="PNG")
             img_str = base64.b64encode(buffer.getvalue()).decode('utf-8')
         
-        images.append({"name":layer["name"], "hasimage": hasimage, "image":img_str})
+        images.append({"name":layer["name"], "always": layer["always"], "hasimage": hasimage, "image":img_str})
     
     return jsonify({'success':True, 'images': images})
 
@@ -61,7 +61,7 @@ def save_images():
         img_data = base64.b64decode(layer["mask"])
         img = torch.IntTensor(np.array(Image.open(io.BytesIO(img_data))))
         img = img[:,:,3].to(torch.bool)
-        terrain.append({"name": layer["name"], "color": color_rgb(layer["color"]), "mask": img})
+        terrain.append({"name": layer["name"], "color": color_rgb(layer["color"]), "always": layer["always"], "mask": img})
     project = {"dim": request.json.get('dim'), "terrain": terrain}
     fname = request.json.get("fname")
     torch.save(project, f"{IMAGES_DIR}/{fname}")
@@ -82,7 +82,7 @@ def save_grid():
         locs = torch.IntTensor([[int(i) for i in k.split(",")] for k,v in layer["mask"].items() if v])
         if locs.shape[0] > 0:
             mask[locs[:,0], locs[:,1]] = 1
-        terrain.append({"name": layer["name"], "color": color_rgb(layer["color"]), "mask": mask})
+        terrain.append({"name": layer["name"], "color": color_rgb(layer["color"]), "always": layer["always"], "mask": mask})
     project = {"dim": request.json.get('dim'), "terrain": terrain}
     fname = request.json.get("fname")
     torch.save(project, f"{GRIDS_DIR}/{fname}")
@@ -110,8 +110,7 @@ def load_grid():
         if hasimage:
             for loc in torch.nonzero(mask).numpy().tolist():
                 data[f"{loc[0]},{loc[1]}"] = True
-            
-        grid.append({"name":layer["name"], "hasimage": hasimage, "data":data})
+        grid.append({"name":layer["name"], "always": layer["always"], "hasimage": hasimage, "data":data})
     return jsonify({"success":True, "rows": project["dim"][0], "cols":project["dim"][1], "grid": grid})
 
 @app.route('/deltrn/<mode>', methods=['PUT'])
