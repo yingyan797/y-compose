@@ -67,6 +67,10 @@
         .layer-visibility {
             margin-right: 10px;
         }
+        .selected {
+            color: blue;
+            border: solid;
+        }
         button {
             background-color: lightgreen;
             color: #333;
@@ -76,12 +80,8 @@
             cursor: pointer;
             font-size: 14px;
         }
-        button.selected {
-            color: blue;
-            border: solid;
-        }
         button:hover {
-            background-color: cornflowerblue;
+            background-color: lightseagreen;
         }
         button.remove-layer {
             border: dashed;
@@ -358,6 +358,7 @@
             
             state.layers.forEach((layer, index) => {
                 const layerItem = document.createElement('div');
+                layerItem.id = 'goal-'+index;
                 layerItem.className = `layer-item ${index === state.activeLayerIndex ? 'active' : ''}`;
                 
                 const colorDisplay = document.createElement('div');
@@ -370,6 +371,7 @@
                 visibilityCheckbox.checked = layer.visible;
                 visibilityCheckbox.addEventListener('change', () => {
                     layer.visible = visibilityCheckbox.checked;
+                    
                     redrawCanvas();
                 });
                 
@@ -382,9 +384,11 @@
                 taskType.id = "taskType-"+index;
                 taskType.checked = layer.always;
                 const label = document.createElement('label');
-                label.style.borderBottom = "solid";
                 label.style.marginRight = "10px";
                 label.innerHTML = "Always";
+                taskType.addEventListener("change", () => {
+                    label.className = taskType.checked? "selected" : "";
+                })
 
                 const removeBtn = document.createElement('button');
                 removeBtn.className = 'remove-layer';
@@ -412,7 +416,9 @@
         // Set the active layer
         function setActiveLayer(index) {
             state.activeLayerIndex = index;
-            renderLayers();
+            state.layers.forEach((layer, index) => {
+                document.getElementById("goal-"+index).className = `layer-item ${index === state.activeLayerIndex ? 'active' : ''}`;
+            })
         }
 
         // Add a new layer

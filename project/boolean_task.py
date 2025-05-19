@@ -64,6 +64,8 @@ class GoalOrientedBase:
                 if done > 0:
                     # Add the current state to the set of subgoals
                     self._add_goal(state)
+                    if done == 2:
+                        break   # Reach goal eventually, no need to stay here indefinately
 
             rewards_per_episode.append(episode_reward)
             if episode % 100 == 0:
@@ -194,7 +196,7 @@ class GoalOrientedQLearning(GoalOrientedBase):
                     continue
                 elif mask[y][x] > 0:
                     ax.add_patch(Rectangle((x-0.5, y-0.5), 1, 1, facecolor=goal_color, alpha=0.7))
-                elif self.env.terrain[y,x] == 2:
+                elif self.env.terrain[y,x] >= 2:
                     ax.add_patch(Rectangle((x-0.5, y-0.5), 1, 1, facecolor=terminal_color, alpha=0.7))
                 
                 # Draw arrows for each cell in the grid

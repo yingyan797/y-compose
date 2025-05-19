@@ -9,16 +9,17 @@ class Room:
         self.action_dim = 1
         self.is_discrete = mode == "saved_discrete"
         self.base = torch.ones((height, width), dtype=torch.bool)
-        self._vis_size = (min(width*40, 2000), min(height*40, 2000))
         self._reward_lev = 100
         self.goals = dict[str, torch.BoolTensor]()
+        self.always = None
         self.terrain = None
         self.loc = torch.zeros(2, dtype=torch.int)
 
     def visual(self, animate=True):
-        canvas = self.terrain.numpy().astype(np.uint8)*100
-        imarr = np.repeat(np.repeat(canvas, 10, axis=1), 10, axis=0)
-        Image.fromarray(imarr, mode="L").resize(self._vis_size).save("project/static/room-terrain.png")            
+        canvas = self.terrain.numpy().astype(np.uint8)*80
+        magnify = 1+int(1000/canvas.shape[0])
+        imarr = np.repeat(np.repeat(canvas, magnify, axis=1), magnify, axis=0)
+        Image.fromarray(imarr, mode="L").save("project/static/room-terrain.png")            
         if animate and len(self._trace) > 1:
             frames = []
             for loc in self._trace:
@@ -34,7 +35,7 @@ class Room:
         if self.terrain is None:
             base = self.base.to(torch.uint8)*2
             masks = [goal.to(torch.uint8)+1 for goal in self.goals.values()]
-            self.terrain = torch.minimum(base, torch.max(torch.stack(masks), dim=0).values)
+            self.terrain = torch.minimum(base, torch.max(torch.stack(masks), dim=0).values) + self.always.to(torch.uint8)
             self._avail_locs = torch.nonzero(self.terrain).numpy().tolist()
         if start_state is not None:
             loc = to_tensor(start_state)
@@ -90,12 +91,12 @@ class Room:
         self.loc = new_loc
         if trace:
             self._trace.append(new_loc)
-        if label == 2:
-            return new_loc, self._reward_lev, 1
+        if label >= 2:
+            return new_loc, self._reward_lev, label
         return new_loc, 0, 0
     
     def parse_compose(self, instr:str):
-        full_goals = torch.where(self.terrain==2, 1, 0).to(dtype=torch.bool)
+        full_goals = torch.where(self.terrain>=2, 1, 0).to(dtype=torch.bool)
         def task_and(masks):
             masks = torch.stack(masks)
             return torch.min(masks, dim=0).values
@@ -191,22 +192,25 @@ def load_room(mode, name):
     h, w = tuple(project['dim'])
     room = Room(h, w, mode)
     layers = {}
+    always_mask = torch.zeros(h, w, dtype=bool)
     for layer in project["terrain"]:
         goal = layer["name"]
+        mask = layer["mask"]
         if goal == 'obstacle':
-            room.base = torch.logical_not(layer["mask"])
+            room.base = torch.logical_not(mask)
         else:
-            layers[goal] = layer["mask"]
-
+            layers[goal] = mask
+            if layer["always"]:
+                always_mask = torch.maximum(always_mask, mask)
+    room.always = always_mask
     room.goals = layers
     return room
 
 
 if __name__ == "__main__":
-    # room=load_room('saved_disc/color shape.pt')
-    # room=load_room('saved_cont/road2goals.pt')
-    # room.start()
-    # room.visual()
+    room = load_room("saved_cont", "road.pt")
+    room.start()
+    room.visual()
 
     # a = torch.ones((16,16,10,10,8))
     # pa = a.permute(0,1,4,2,3).reshape(16,16,8,-1)
@@ -214,6 +218,6 @@ if __name__ == "__main__":
     # indices = torch.tensor([12, 45, 79, 88], dtype=torch.int)
     # print(pa.index_select(3, indices).shape)
     
-    t = torch.IntTensor([1,2,4,4,0])
-    print(torch.max(t, 0))
+    # t = torch.IntTensor([1,2,4,4,0])
+    # print(torch.max(t, 0))
 
