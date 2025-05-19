@@ -134,10 +134,10 @@ def create_dfa():
     fname = request.json.get("fname")
     out = formula_to_dfa(ifml, fname)
     if isinstance(out, tuple):
-        res = {'success': True}
+        res = {'success': True, "mona": out[1]}
         res.update(out[0])
         if (request.json.get("visual")):
-            res["diagram_code"] = output2dot(out[1])
+            res["diagram_code"] = output2dot(out[2])
         return jsonify(res)
 
 @app.route('/load_dfa', methods=["POST"])
@@ -145,12 +145,14 @@ def load_dfa():
     fname = request.json.get("fname")
     try:
         with open(MONA_DIR+f"/{fname}.mona", "r") as f:
-            formula = f.readline().split(";")[0][1:]
+            lines = f.readlines()
+            formula = lines[0][1:-1]
+            mona_in = lines[1:]
         with open(DFA_DIR+f"/{fname}.dfa", "r") as f:
             mona_out = f.read()
     except IOError as e:
         return jsonify({'success': False, 'error': str(e)})
-    res = {"success": True}
+    res = {"success": True, "mona": mona_in}
     res.update(parse_dfa(formula, mona_out))
     if (request.json.get("visual")):
         res["diagram_code"] = output2dot(mona_out)

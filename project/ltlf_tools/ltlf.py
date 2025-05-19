@@ -407,7 +407,7 @@ class LTLfUntil(LTLfBinaryOperator):
             else self.formulas[1].to_mona(v=ex_var, m=m)
         )
         return (
-            "(ex1 {0}: {0} in $ & {1}<={0}&{0}<={5} & {2} & "
+            "(ex1 {0}: {0} in $ & {1}<{0}&{0}<={5} & {2} & "
             "(all1 {3}: {3} in $ & {1}<={3}&{3}<{0} => {4}))".format(
                 ex_var, v, f2, all_var, f1, m
             )
@@ -616,9 +616,10 @@ class LTLfThen(LTLfBinaryOperator):
         """Return the MONA encoding of an LTLf Then formula."""
         # We need a break point variable
         break_var = unique_var()
+        ex_var = unique_var()
         
         # Formula 1 applies up to the break point
-        f1 = self.formulas[0].to_mona(v=v, m=break_var)
+        f1 = self.formulas[0].to_mona(v=ex_var, m=break_var)
         
         # Formula 2 applies from the break point to the end
         if len(self.formulas) > 2:
@@ -628,10 +629,9 @@ class LTLfThen(LTLfBinaryOperator):
         
         # The variable used in Formula 2 to check positions
         return (
-            "(ex1 {0}: {0} in $ & {1}<={0}&{0}<={2} & "
-            "{3} & "
-            "{4})".format(
-                break_var, v, m, f1, f2
+            "(ex1 {0}: {0} in $ & {1}<{0}&{0}<={5} & {2} & "
+            "ex1 {3}: {3} in $ & {1}<={3}&{3}<{0} & {4})".format(
+                break_var, v, f2, ex_var, f1, m
             )
         )
 

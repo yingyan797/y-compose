@@ -108,15 +108,16 @@ def formula_to_dfa(ifml, file_name):
     try:
         with open(ipath, "w+") as file:
             file.write(prog)
-            p_formula = prog.split(";")[0][1:]
+            lines = prog.split("\n")
+            p_formula = lines[0][1:-1]
+            mona_in = lines[1:-1]
     except IOError:
         print("[ERROR]: Problem opening the mona file!")
     cmd = f'{MONA_PATH} -q -u -w {ipath} > {opath}'
     if os.system(cmd) == 0:
         with open(opath, "r") as f:
             mona_output = f.read()
-
-        return parse_dfa(p_formula, mona_output), mona_output
+        return parse_dfa(p_formula, mona_output), mona_in, mona_output
     return False
 
 if __name__ == "__main__":

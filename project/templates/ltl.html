@@ -4,6 +4,7 @@
     <link rel="icon" type="image/x-icon" href="static/logo.png"><style>
         th, td {
             border: solid skyblue;
+            background-color: azure;
         }
         .column {
             float: left;
@@ -30,7 +31,7 @@
 </head>
 <body style="background-color: lightcyan;">
     <h2>Y-Compose: Draw LTL to DFA | <a href="/ltl">reset</a> | <a href="/">Home</a></h2>
-    <table style="margin: 10px; border-bottom: dashed; background-color: azure;">
+    <table style="margin: 10px; border-bottom: dashed;">
         <tr><th class="annote" id="cfml" rowspan="2">Formula</th><td rowspan="2">
             <textarea id="ifml" rows="4" style="width: 95%;"></textarea><br></td>
             <th>Initial state</th><td id="initial">...</td>
@@ -49,8 +50,8 @@
     <table id="resultTable" style="padding-top: 5px; display: none;">
         <tr><td rowspan="2"><table id="transition"></table>
             <button class="latent" id="clear-color">Clear color annotation</button></td>
-        <td><table id="matrix"></table></td></tr>
-        <tr><td><div id="diagram" style="display: none;"></div><button class="latent" id="resetZoom">Reset zooming</button></td>
+        <td><table id="matrix"></table></td><td id="mona"></td></tr>
+        <tr><td colspan="2"><div id="diagram" style="display: none;"></div><button class="latent" id="resetZoom">Reset zooming</button></td>
     </tr></table><iframe id="ltlf2dfa" src="http://ltlf2dfa.diag.uniroma1.it/" width="97%" height="500px"></iframe>
 
     <script>
@@ -67,6 +68,7 @@
             const copyButton = document.getElementById('copy');
             const formulaBox = document.getElementById('ifml');
             const formulaClear = document.getElementById('cfml');
+            const p_mona = document.getElementById("mona");
             const p_formula = document.getElementById("p_formula");
             const clearColorButton = document.getElementById("clear-color");
             const drawDiagram = document.getElementById("draw-dfa");
@@ -75,7 +77,22 @@
 
             function create_table(data) {
                 let trans_html = "";
-                document.getElementById("p_formula").innerHTML = data.formula;
+                p_formula.innerHTML = data.formula;
+                p_mona.innerHTML = "<b>Mona file content</b>";
+                data.mona.forEach((line, i) => {
+                    if (i == data.mona.length-1) {
+                        const spec = document.createElement("textarea");
+                        spec.rows = 5;
+                        spec.cols = 40;
+                        spec.innerText = line;
+                        spec.readOnly = true;
+                        p_mona.appendChild(spec)
+                    } else {
+                        const info = document.createElement("div");
+                        info.innerHTML = line;
+                        p_mona.appendChild(info);
+                    }
+                })
                 document.getElementById("initial").innerHTML = data.initial_state;
                 document.getElementById("accepting").innerHTML = data.accepting_states;
                 document.getElementById("rejecting").innerHTML = data.rejecting_states;
