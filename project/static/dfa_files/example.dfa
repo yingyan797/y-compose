@@ -1,57 +1,30 @@
 
-DFA for formula with free variables: A B C D 
+DFA for formula with free variables: A B 
 Initial state: 0
-Accepting states: 10 
-Rejecting states: 0 1 2 3 4 5 6 7 8 9 
+Accepting states: 4 
+Rejecting states: 0 1 2 3 
 
-Automaton has 11 states and 23 BDD-nodes
+Automaton has 5 states and 8 BDD-nodes
 Transitions:
-State 0: XXXX -> state 1
-State 1: 0XXX -> state 2
-State 1: 1XXX -> state 3
-State 2: 0X0X -> state 2
-State 2: 0X1X -> state 4
-State 2: 1X0X -> state 3
-State 2: 1X1X -> state 5
-State 3: X00X -> state 3
-State 3: X01X -> state 5
-State 3: X10X -> state 6
-State 3: X11X -> state 7
-State 4: 0XX0 -> state 4
-State 4: 0XX1 -> state 8
-State 4: 1XX0 -> state 5
-State 4: 1XX1 -> state 9
-State 5: X0X0 -> state 5
-State 5: X0X1 -> state 9
-State 5: X1X0 -> state 7
-State 5: X1X1 -> state 10
-State 6: XX0X -> state 6
-State 6: XX1X -> state 7
-State 7: XXX0 -> state 7
-State 7: XXX1 -> state 10
-State 8: 0XXX -> state 8
-State 8: 1XXX -> state 9
-State 9: X0XX -> state 9
-State 9: X1XX -> state 10
-State 10: XXXX -> state 10
+State 0: XX -> state 1
+State 1: 0X -> state 2
+State 1: 1X -> state 3
+State 2: 00 -> state 2
+State 2: 01 -> state 4
+State 2: 10 -> state 3
+State 2: 11 -> state 4
+State 3: XX -> state 3
+State 4: XX -> state 4
 A counter-example of least length (0) is:
 A               X 
 B               X 
-C               X 
-D               X 
 
 A = {}
 B = {}
-C = {}
-D = {}
 
-A satisfying example of least length (3) is:
-A               X 01X
-B               X XX1
-C               X X1X
-D               X XX1
+A satisfying example of least length (2) is:
+A               X 00
+B               X X1
 
-A = {1}
-B = {2}
-C = {1}
-D = {2}
+A = {}
+B = {1}

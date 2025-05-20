@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Y-Compose</title>
+    <link rel="icon" type="image/x-icon" href="static/logo.png">
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -35,9 +36,9 @@
             display: block;
         }
         .layers-panel {
-            margin-top: 20px;
+            margin-top: 10px;
             background-color: #f8f8f8;
-            padding: 10px;
+            padding: 5px;
             border-radius: 5px;
             border: 1px solid #ddd;
         }
@@ -77,14 +78,23 @@
             border: none;
             padding: 8px 12px;
             border-radius: 4px;
+            margin-right: 2px;
+            margin-bottom: 2px;
             cursor: pointer;
             font-size: 14px;
         }
         button:hover {
             background-color: lightseagreen;
         }
+        button.annote {
+            border: dashed;
+            font-size: small;
+            padding: 5px;
+        }
         button.remove-layer {
             border: dashed;
+            padding: 5px;
+            font-size: small;
             background-color: lightgoldenrodyellow;
             color: #333;
         }
@@ -113,45 +123,38 @@
             display: table;
             clear: both;
         }
-        .msg {
-            font-size: small;
-            color: lightseagreen;
-            margin-left: 10px;
-            padding: 3px;
-            border-radius: 3px;
-            border: dashed;
-        }
         .clickable:hover {
             cursor: pointer;
             border: solid;
             color: blueviolet;
         }
-
+        .keyboard {
+            padding-top: 5px;
+            border-bottom: solid;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="grid-controls"><h3>Y-compose: terrain editing - 
-            <input type="radio" name="drawingMode" value="discrete" checked><label id="modeD" style="color: blueviolet;"> Discrete (Grid) </label>
-            <input type="radio" name="drawingMode" value="continuous"><label id="modeC">Continuous (Free Draw); </label>| 
-            <a href="/ltl">LTL compose</a>; <i id="msgbox" class="msg" rows="1" readonly></i>
+            <input type="radio" name="drawingMode" value="discrete" checked>
+            <label id="modeD" style="color: blueviolet;"> Discrete (Grid) </label>
+            <input type="radio" name="drawingMode" value="continuous"><label id="modeC">Continuous (Free Draw); </label> 
+            <a href="/ltl">LTL compose</a> ; <i id="msgbox" class="msg" rows="1" readonly></i>
                 <b id="cmsg" class="clickable" onclick="pushMessage(true, '')">X</b></h3>
             <label for="gridRows" id="gridControl">Grid Size: 
                 <input type="number" id="gridRows" min="2" max="50" value="10" style="width: 50px;"> x 
                 <input type="number" id="gridCols" min="2" max="50" value="10" style="width: 50px;">
-                <button id="applyGridBtn">Set Grid</button>
-                <button id="singleRangeBtn">Single cell</button>
+                <button id="applyGridBtn">Set Grid</button><button id="singleRangeBtn">Single cell</button>
             </label>
             <label id="canvasControl" style="display: none;">
                 Brush size: <input type="range" id="brushSize" min="1" max="100" value="10" style="height: 4px;">
-                <button id="undo"><-Undo</button>
-                <button id="redo">Redo-></button>
-            </label> | <button id="penEraser">Draw ink</button> 
-            <button class="remove-layer" id="clearLayer">Clear layer</button> 
-            <button class="remove-layer" id="clear">Restart</button>
+                <button id="undo"><-Undo</button><button id="redo">Redo-></button>
+            </label><button id="penEraser">Draw ink</button> 
+            <button class="remove-layer" id="clearLayer">Clear layer</button><button class="remove-layer" id="clear">Restart</button>
             Terrain name:<input type="file" style="width: 80px;" id="ipf" accept=".pt" oninput="uploadFile()"> 
             <input type="text" id="fname">.pt <button id="load">Load</button> <button id="save">Save</button>
-            <button id="copy" style="border: dashed;" onclick="copyFile()">Copy</button> 
+            <button id="copy" class="annote" onclick="copyFile()">Copy</button> 
             <button id="delete" class="remove-layer">Delete</button> 
         </div>
     <div class="row">
@@ -168,8 +171,27 @@
                 <button id="addLayerBtn">Add Layer</button>
             </div>
             <div class="layers-panel">
-                <h3>Layers to display ...</h3>
-                <div id="layersList"></div>
+                <table>
+                    <tr><th>Layers to display</th><th>Create atomic tasks</th></tr>
+                    <tr><td id="layersList"></td><td>
+                        Task file: <input type="text" id="taskFile" value="example">
+                            <button onclick="saveTasks()">Save</button><br>
+                        Task list: <select id="allTasks">
+                            <option id="nTasks" value="0"> - 0 Tasks - </option>
+                        </select><button class="remove-layer" onclick="removeTask()">
+                            Remove</button><textarea id="taskEdit" rows="5" cols="40"></textarea>
+                        <div class="keyboard">
+                            <button id="tkey-&" title="and">&</button><button id="tkey-|" title="or">|</button>
+                            <button id="tkey-!" title="not">!</button><button id="tkey-U" title="Until">U</button>
+                            <button id="tkey-F" title="Eventually">F</button><button id="tkey-G" title="Always">G</button>
+                            <button id="tkey-()">()</button><button class="remove-layer" id="tkey-clear">Clear</button>
+                            <button class="annote"  onclick="addTaskToList()">Add task + </b>
+                        </div><div class="keyboard" id="taskKeys"></div>
+                        <div class="keyboard" id="customKeys"></div><input type="text" id="customTn">
+                            <button class="annote" onclick="addCustomKey()">Add term +</button>
+                            <button class="remove-layer" onclick="delCustomKey()">Delete</button>
+                    </td></tr>
+                </table>
             </div>
         </div>
     </div>
@@ -189,11 +211,11 @@
             },
             layers: [
                 { name: 'obstacle', color: '#030303'},
-                { name: 'goal-1', color: '#FF0000'},
-                { name: 'goal-2', color: '#00FF00'},
-                { name: 'goal-3', color: '#0000FF'},
-                { name: 'goal-4', color: '#FFFF00'},
-                { name: 'goal-5', color: '#FF00FF'}
+                { name: 'goal_1', color: '#FF0000'},
+                { name: 'goal_2', color: '#00FF00'},
+                { name: 'goal_3', color: '#0000FF'},
+                { name: 'goal_4', color: '#FFFF00'},
+                { name: 'goal_5', color: '#FF00FF'}
             ],
             activeLayerIndex: 0,
             isDrawing: false,
@@ -241,6 +263,11 @@
         const newLayerColorInput = document.getElementById('newLayerColor');
         const addLayerBtn = document.getElementById('addLayerBtn');
         const layersList = document.getElementById('layersList');
+        const taskEdit = document.getElementById('taskEdit');
+        const taskKeys = document.getElementById('taskKeys');
+        const taskList = document.getElementById('allTasks');
+        const taskNum = document.getElementById('nTasks');
+        const customKeys = document.getElementById("customKeys");
 
         // Initialize the app
         function init() {
@@ -248,6 +275,11 @@
             renderLayers();
             setupEventListeners();
             redrawCanvas();
+            document.querySelectorAll("[id^=tkey-]").forEach((elem, i) => {
+                elem.addEventListener("click", function() {
+                    inputTextAtCursor(taskEdit, elem.id.split("-")[1]);
+                })
+            })
         }
         function uploadFile() {
             const segs = document.getElementById("ipf").value.split("\\");
@@ -270,7 +302,102 @@
             }
             msgbox.innerHTML = content;
         }
-
+        function inputTextAtCursor(textarea, text) {
+            const startPos = textarea.selectionStart;
+            const endPos = textarea.selectionEnd;
+            const scrollTop = textarea.scrollTop;
+            
+            // Get the text before and after the cursor
+            const textBefore = textarea.value.substring(0, startPos);
+            const textAfter = textarea.value.substring(endPos);
+            
+            // Special handling for parentheses
+            if (text == "clear") {
+                textarea.value = "";
+                textarea.selectionStart = startPos;
+                textarea.selectionEnd = startPos;
+            } else if (text === "()") {
+                // If text is selected, wrap it in parentheses
+                if (startPos !== endPos) {
+                    const selectedText = textarea.value.substring(startPos, endPos);
+                    textarea.value = textBefore + "(" + selectedText + ")" + textAfter;
+                    textarea.selectionStart = startPos + 1;
+                    textarea.selectionEnd = endPos + 1;
+                } else {
+                    // Otherwise, insert empty parentheses and place cursor between them
+                    textarea.value = textBefore + "() " + textAfter;
+                    textarea.selectionStart = startPos + 1;
+                    textarea.selectionEnd = startPos + 1;
+                }
+            } 
+            // Handle all other operators
+            else {
+                let sep = " ";
+                if (["!", "U", "F", "G"].includes(text)) {
+                    sep = "";
+                }
+                textarea.value = textBefore + text + sep + textAfter;
+                const pos = startPos + text.length + sep.length;
+                textarea.selectionStart = pos;
+                textarea.selectionEnd = pos;
+            }
+            
+            // Restore scroll position
+            textarea.scrollTop = scrollTop;
+            
+            // Focus back on the textarea
+            textarea.focus();
+        }
+        function addTaskToList() {
+            if (taskEdit.value == "") {
+                return;
+            }
+            const task = document.createElement("option");
+            task.value = taskEdit.value;
+            task.textContent = taskEdit.value;
+            taskList.appendChild(task);
+            const tnum = parseInt(taskNum.value);
+            taskNum.value = tnum + 1;
+            taskNum.textContent = " - " + taskNum.value + " Tasks - ";
+            taskEdit.value = "";
+        }
+        function removeTask() {
+            if (taskList.selectedIndex > 0) {
+                taskList.remove(taskList.selectedIndex);
+                const tnum = parseInt(taskNum.value);
+                taskNum.value = tnum - 1;
+                taskNum.textContent = " - " + taskNum.value + " Tasks - ";
+            }
+        }
+        function saveTasks() {
+            fetch('/create_atask', {method:'POST', headers: {
+                        'Content-Type': 'application/json'
+                    },body: JSON.stringify({
+                        fname: document.getElementById("taskFile").value,
+                        tasks: [...taskList.childNodes].map(elem => elem.value)
+                    })})
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    pushMessage(true, "Saved task to file")
+                    return response.json();
+                })
+        }
+        function addCustomKey() {
+            const ckey = document.createElement("button");
+            ckey.textContent = document.getElementById("customTn").value;
+            ckey.addEventListener('click', () => {
+                inputTextAtCursor(taskEdit, ckey.textContent);
+            })
+            customKeys.appendChild(ckey);
+        } function delCustomKey() {
+            const num = customKeys.childNodes.length;
+            if (num > 0){
+                const ckey = customKeys.childNodes[num-1];
+                customKeys.removeChild(ckey);
+            }
+        }
         // Draw grid on overlay
         function drawGrid() {
             gridCtx.clearRect(0, 0, state.canvas.width, state.canvas.height);
@@ -355,10 +482,10 @@
         // Render the layers list in the UI
         function renderLayers() {
             layersList.innerHTML = '';
-            
+            taskKeys.innerHTML = "";
             state.layers.forEach((layer, index) => {
                 const layerItem = document.createElement('div');
-                layerItem.id = 'goal-'+index;
+                layerItem.id = 'goal_'+index;
                 layerItem.className = `layer-item ${index === state.activeLayerIndex ? 'active' : ''}`;
                 
                 const colorDisplay = document.createElement('div');
@@ -385,7 +512,7 @@
                 taskType.checked = layer.always;
                 const label = document.createElement('label');
                 label.style.marginRight = "10px";
-                label.innerHTML = "Always";
+                label.innerHTML = "Stay";
                 taskType.addEventListener("change", () => {
                     label.className = taskType.checked? "selected" : "";
                 })
@@ -408,8 +535,14 @@
                         setActiveLayer(index);
                     }
                 });
-                
                 layersList.appendChild(layerItem);
+
+                const tnkey = document.createElement("button");
+                tnkey.innerHTML = layer.name;
+                tnkey.addEventListener('click', () => {
+                    inputTextAtCursor(taskEdit, layer.name);
+                })
+                taskKeys.appendChild(tnkey);
             });
         }
 
@@ -417,7 +550,7 @@
         function setActiveLayer(index) {
             state.activeLayerIndex = index;
             state.layers.forEach((layer, index) => {
-                document.getElementById("goal-"+index).className = `layer-item ${index === state.activeLayerIndex ? 'active' : ''}`;
+                document.getElementById("goal_"+index).className = `layer-item ${index === state.activeLayerIndex ? 'active' : ''}`;
             })
         }
 

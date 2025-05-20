@@ -12,6 +12,7 @@ GRIDS_DIR = 'project/static/saved_disc'
 IMAGES_DIR = 'project/static/saved_cont'
 MONA_DIR = 'project/static/mona_files'
 DFA_DIR = 'project/static/dfa_files'
+ATASK_DIR = 'project/static/atomic_tasks'
 
 def color_rgb(ccode):
     color = ccode[1:]
@@ -146,7 +147,7 @@ def load_dfa():
     try:
         with open(MONA_DIR+f"/{fname}.mona", "r") as f:
             lines = f.readlines()
-            formula = lines[0][1:-1]
+            formula = lines[0][1:-2]
             mona_in = lines[1:]
         with open(DFA_DIR+f"/{fname}.dfa", "r") as f:
             mona_out = f.read()
@@ -167,6 +168,15 @@ def del_dfa():
         os.remove(mona_path)
     if os.path.isfile(dfa_path):
         os.remove(dfa_path)
+    
+    return jsonify({'success': True})
+
+@app.route('/create_atask', methods=['POST'])
+def create_atask():
+    fname = request.json.get("fname")
+    with open(ATASK_DIR+f"/{fname}.t", "w") as f:
+        for i, atask in enumerate(request.json.get("tasks")[3:], start=1):
+            f.write(f"$task_{i} = '{atask}'\n")
     
     return jsonify({'success': True})
 

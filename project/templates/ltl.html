@@ -1,10 +1,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Y-Compose LTL</title>
-    <link rel="icon" type="image/x-icon" href="static/logo.png"><style>
+    <link rel="icon" type="image/x-icon" href="static/logo.png">
+    <style>
         th, td {
             border: solid skyblue;
             background-color: azure;
+        }
+        textarea{
+            padding: 5px;
+            border-radius: 5px;
+            background-color: lightcyan;
         }
         .column {
             float: left;
@@ -21,6 +27,10 @@
             background-color: salmon;
             cursor: pointer;
         }
+        .annote:hover {
+            border: dashed;
+            cursor: pointer;
+        }
         #diagram {
             width: 97%;
             border: 1px dashed;
@@ -30,13 +40,14 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3-graphviz/5.0.2/d3-graphviz.min.js"></script>
 </head>
 <body style="background-color: lightcyan;">
-    <h2>Y-Compose: Draw LTL to DFA | <a href="/ltl">reset</a> | <a href="/">Home</a></h2>
+    <h2>Y-Compose: Linear Temporal Logic | <a href="/ltl">reset</a> | <a href="/">Home</a></h2>
     <table style="margin: 10px; border-bottom: dashed;">
-        <tr><th class="annote" id="cfml" rowspan="2">Formula</th><td rowspan="2">
-            <textarea id="ifml" rows="4" style="width: 95%;"></textarea><br></td>
+        <tr><th class="annote" id="fkeys">Formula +</th><td rowspan="2">
+            <textarea id="ifml" rows="4" style="width: 95%;" placeholder="Enter LTLf formula..."></textarea><br>
+                <div class="keyboard" style="display: none;"></div></td>
             <th>Initial state</th><td id="initial">...</td>
-            <td id="msgbox" rowspan="3" style="width: 100px;"></td></tr>
-        <tr><th>Accepting states</th><td id="accepting">...</td></tr>
+            <td id="msgbox" rowspan="3" style="width: 100px; color: green;"></td></tr>
+        <tr><th class="remove" id="cfml">Clear</th><th>Accepting states</th><td id="accepting">...</td></tr>
         <tr><th>File</th><td>
             <input type="file" id="ipf" oninput="load_file()">
             <input type="text" id="fname" value="example" minlength="1"> 
@@ -82,13 +93,15 @@
                 data.mona.forEach((line, i) => {
                     if (i == data.mona.length-1) {
                         const spec = document.createElement("textarea");
-                        spec.rows = 5;
-                        spec.cols = 40;
+                        spec.rows = 8;
+                        spec.cols = 50;
                         spec.innerText = line;
                         spec.readOnly = true;
                         p_mona.appendChild(spec)
                     } else {
                         const info = document.createElement("div");
+                        info.style.paddingLeft = "5px";
+                        info.style.color = "gray";
                         info.innerHTML = line;
                         p_mona.appendChild(info);
                     }
@@ -143,7 +156,7 @@
                                 if (entry.style.backgroundColor != 'lightgoldenrodyellow') {
                                     entry.style.backgroundColor = 'lightgoldenrodyellow';
                                 } else {
-                                    entry.style.backgroundColor = 'lightcyan';
+                                    entry.style.backgroundColor = 'azure';
                                 }
                             })
                         })

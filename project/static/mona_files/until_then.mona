@@ -1,0 +1,5 @@
+#((a T b) U (c T d));
+var2 $ where ~ex1 p where true: p notin $ & p+1 in $;
+allpos $;
+var2 A, B, C, D;
+(ex1 v_1: v_1 in $ & 0<v_1&v_1<=max($) & (ex1 v_5: v_5 in $ & v_1<v_5&v_5<=max($) & (v_5 in D) & ex1 v_6: v_6 in $ & v_1<=v_6&v_6<v_5 & (v_6 in C)) & (all1 v_2: v_2 in $ & 0<=v_2&v_2<v_1 => (ex1 v_3: v_3 in $ & v_2<v_3&v_3<=max($) & (v_3 in B) & ex1 v_4: v_4 in $ & v_2<=v_4&v_4<v_3 & (v_4 in A))));
