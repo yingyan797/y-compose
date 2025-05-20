@@ -1,30 +1,35 @@
 
-DFA for formula with free variables: A B 
+DFA for formula with free variables: TASK_1 TASK_2 TASK_3 
 Initial state: 0
-Accepting states: 4 
-Rejecting states: 0 1 2 3 
+Accepting states: 5 
+Rejecting states: 0 1 2 3 4 
 
-Automaton has 5 states and 8 BDD-nodes
+Automaton has 6 states and 8 BDD-nodes
 Transitions:
-State 0: XX -> state 1
-State 1: 0X -> state 2
-State 1: 1X -> state 3
-State 2: 00 -> state 2
-State 2: 01 -> state 4
-State 2: 10 -> state 3
-State 2: 11 -> state 4
-State 3: XX -> state 3
-State 4: XX -> state 4
+State 0: XXX -> state 1
+State 1: 0XX -> state 2
+State 1: 10X -> state 3
+State 1: 11X -> state 4
+State 2: XXX -> state 2
+State 3: X0X -> state 3
+State 3: X1X -> state 4
+State 4: XX0 -> state 4
+State 4: XX1 -> state 5
+State 5: XXX -> state 5
 A counter-example of least length (0) is:
-A               X 
-B               X 
+TASK_1          X 
+TASK_2          X 
+TASK_3          X 
 
-A = {}
-B = {}
+TASK_1 = {}
+TASK_2 = {}
+TASK_3 = {}
 
 A satisfying example of least length (2) is:
-A               X 00
-B               X X1
+TASK_1          X 1X
+TASK_2          X 1X
+TASK_3          X X1
 
-A = {}
-B = {1}
+TASK_1 = {0}
+TASK_2 = {0}
+TASK_3 = {1}

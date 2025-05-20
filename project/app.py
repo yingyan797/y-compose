@@ -180,5 +180,23 @@ def create_atask():
     
     return jsonify({'success': True})
 
+@app.route('/load_atask', methods=['POST'])
+def load_atask():
+    fname = request.json.get("fname")
+    with open(ATASK_DIR+f"/{fname}", "r") as f:
+        tasks = []
+        while True:
+            line = f.readline()
+            if not line:
+                break
+            for i in range(1, len(line)):
+                if not line[i].isalnum() and line[i] not in ["_"]:
+                    tname = line[1:i]
+                    break
+            else:
+                tname = line.strip()
+            tasks.append(tname)
+    return jsonify({'success': True, "tasks": tasks})
+
 if __name__ == '__main__':
     app.run("127.0.0.1", 5002, debug=True)

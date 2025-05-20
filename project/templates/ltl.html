@@ -23,11 +23,15 @@
             background-color: lightgreen;
             cursor: pointer;
         }
+        .remove {
+            border: dashed;
+            background-color: lightsalmon;
+        }
         .remove:hover {
             background-color: salmon;
             cursor: pointer;
         }
-        .annote:hover {
+        .mark, .annote:hover {
             border: dashed;
             cursor: pointer;
         }
@@ -35,21 +39,46 @@
             width: 97%;
             border: 1px dashed;
         }
+        .keyboard {
+            padding-top: 5px;
+            border-bottom: solid;
+        }
+        button {
+            background-color: lightgreen;
+            margin-right: 2px;
+            margin-bottom: 2px;
+            border-radius: 5px;
+            padding: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: lightseagreen;
+        }
     </style>
+    <script src="static/webutil.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3-graphviz/5.0.2/d3-graphviz.min.js"></script>
 </head>
 <body style="background-color: lightcyan;">
     <h2>Y-Compose: Linear Temporal Logic | <a href="/ltl">reset</a> | <a href="/">Home</a></h2>
     <table style="margin: 10px; border-bottom: dashed;">
-        <tr><th class="annote" id="fkeys">Formula +</th><td rowspan="2">
+        <tr><th class="annote" id="fkeys" onclick="hideShow('editor')">Formula +</th><td rowspan="2">
             <textarea id="ifml" rows="4" style="width: 95%;" placeholder="Enter LTLf formula..."></textarea><br>
-                <div class="keyboard" style="display: none;"></div></td>
+                <div id="editor" style="display: none;"> Upload atomic tasks: 
+                    <input id="taskf" type="file" oninput="loadKeys()">
+                    <div class="keyboard">
+                            <button id="tkey-&" title="and">&</button><button id="tkey-|" title="or">|</button>
+                            <button id="tkey-!" title="not">!</button><button id="tkey-U" title="Until">U</button>
+                            <button id="tkey-F" title="Eventually">F</button><button id="tkey-G" title="Always">G</button>
+                            <button id="tkey-T" title="Then">T</button><button id="tkey-()">()</button>
+                            <button class="remove" id="tkey-clear">Clear</button>
+                    </div><div class="keyboard" id="taskKeys"></div>
+                </div></td>
             <th>Initial state</th><td id="initial">...</td>
             <td id="msgbox" rowspan="3" style="width: 100px; color: green;"></td></tr>
         <tr><th class="remove" id="cfml">Clear</th><th>Accepting states</th><td id="accepting">...</td></tr>
         <tr><th>File</th><td>
-            <input type="file" id="ipf" oninput="load_file()">
+            <input type="file" id="ipf" oninput="uploadFile('ipf', 'fname')">
             <input type="text" id="fname" value="example" minlength="1"> 
             <input type="checkbox" id="draw-dfa">Draw diagram
             <button id="load">Load DFA</button><button id="create">Create DFA</button>
@@ -66,10 +95,27 @@
     </tr></table><iframe id="ltlf2dfa" src="http://ltlf2dfa.diag.uniroma1.it/" width="97%" height="500px"></iframe>
 
     <script>
-        function load_file() {
-            const fpath = document.getElementById("ipf").value;
-            const fname = fpath.split("\\")[2].split(".")[0];
-            document.getElementById("fname").value = fname;
+        function loadKeys() {
+            const segs = document.getElementById("taskf").value.split("\\");
+            const fname = segs[segs.length-1];
+            fetch('/load_atask',
+                    {method: 'POST', headers: {
+                            'Content-Type': 'application/json'
+                        }, body: JSON.stringify({fname: fname})}
+                ).then(response => response.json()).then(data => {
+                    if (data.success) {
+                        data.tasks.forEach((t, i) => {
+                            const tnkey = document.createElement('button');
+                            tnkey.textContent = t;
+                            tnkey.addEventListener('click', () => {
+                                inputTextAtCursor(document.getElementById("ifml"), t)
+                            })
+                            document.getElementById("taskKeys").appendChild(tnkey);
+                        })
+                    } else {
+                        alert('Error creating dfa table: ');
+                    }
+            })
         }
         document.addEventListener('DOMContentLoaded', function() {
             const loadButton = document.getElementById('load');
@@ -86,6 +132,7 @@
             const diagram = document.getElementById("diagram");
             const msgbox = document.getElementById("msgbox");
 
+            initKeys("[id^=tkey-]", formulaBox);
             function create_table(data) {
                 let trans_html = "";
                 p_formula.innerHTML = data.formula;

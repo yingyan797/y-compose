@@ -133,6 +133,7 @@
             border-bottom: solid;
         }
     </style>
+    <script src="static/webutil.js"></script>
 </head>
 <body>
     <div class="container">
@@ -152,7 +153,7 @@
                 <button id="undo"><-Undo</button><button id="redo">Redo-></button>
             </label><button id="penEraser">Draw ink</button> 
             <button class="remove-layer" id="clearLayer">Clear layer</button><button class="remove-layer" id="clear">Restart</button>
-            Terrain name:<input type="file" style="width: 80px;" id="ipf" accept=".pt" oninput="uploadFile()"> 
+            Terrain name:<input type="file" style="width: 80px;" id="ipf" accept=".pt" oninput="uploadFile('ipf', 'fname')"> 
             <input type="text" id="fname">.pt <button id="load">Load</button> <button id="save">Save</button>
             <button id="copy" class="annote" onclick="copyFile()">Copy</button> 
             <button id="delete" class="remove-layer">Delete</button> 
@@ -275,15 +276,7 @@
             renderLayers();
             setupEventListeners();
             redrawCanvas();
-            document.querySelectorAll("[id^=tkey-]").forEach((elem, i) => {
-                elem.addEventListener("click", function() {
-                    inputTextAtCursor(taskEdit, elem.id.split("-")[1]);
-                })
-            })
-        }
-        function uploadFile() {
-            const segs = document.getElementById("ipf").value.split("\\");
-            fnameBox.value = segs[segs.length-1].split(".")[0];
+            initKeys("[id^=tkey-]");
         }
         function copyFile() {
             let text = "saved_disc";
@@ -301,52 +294,6 @@
                 msgbox.style.color = "salmon";
             }
             msgbox.innerHTML = content;
-        }
-        function inputTextAtCursor(textarea, text) {
-            const startPos = textarea.selectionStart;
-            const endPos = textarea.selectionEnd;
-            const scrollTop = textarea.scrollTop;
-            
-            // Get the text before and after the cursor
-            const textBefore = textarea.value.substring(0, startPos);
-            const textAfter = textarea.value.substring(endPos);
-            
-            // Special handling for parentheses
-            if (text == "clear") {
-                textarea.value = "";
-                textarea.selectionStart = startPos;
-                textarea.selectionEnd = startPos;
-            } else if (text === "()") {
-                // If text is selected, wrap it in parentheses
-                if (startPos !== endPos) {
-                    const selectedText = textarea.value.substring(startPos, endPos);
-                    textarea.value = textBefore + "(" + selectedText + ")" + textAfter;
-                    textarea.selectionStart = startPos + 1;
-                    textarea.selectionEnd = endPos + 1;
-                } else {
-                    // Otherwise, insert empty parentheses and place cursor between them
-                    textarea.value = textBefore + "() " + textAfter;
-                    textarea.selectionStart = startPos + 1;
-                    textarea.selectionEnd = startPos + 1;
-                }
-            } 
-            // Handle all other operators
-            else {
-                let sep = " ";
-                if (["!", "U", "F", "G"].includes(text)) {
-                    sep = "";
-                }
-                textarea.value = textBefore + text + sep + textAfter;
-                const pos = startPos + text.length + sep.length;
-                textarea.selectionStart = pos;
-                textarea.selectionEnd = pos;
-            }
-            
-            // Restore scroll position
-            textarea.scrollTop = scrollTop;
-            
-            // Focus back on the textarea
-            textarea.focus();
         }
         function addTaskToList() {
             if (taskEdit.value == "") {
@@ -538,7 +485,7 @@
                 layersList.appendChild(layerItem);
 
                 const tnkey = document.createElement("button");
-                tnkey.innerHTML = layer.name;
+                tnkey.textContent = layer.name;
                 tnkey.addEventListener('click', () => {
                     inputTextAtCursor(taskEdit, layer.name);
                 })
