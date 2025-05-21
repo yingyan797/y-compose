@@ -122,4 +122,5 @@ def formula_to_dfa(ifml, file_name):
 
 if __name__ == "__main__":
     print(formula_to_dfa("(a U b) & (c U d)", "and_until"))
-    # print(MONA_PATH)
+    print(MONA_PATH)
+ 

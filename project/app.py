@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request, jsonify, send_file
-import json, os, torch, io, base64
+import json, os, torch, io, base64, re
 import numpy as np
 from PIL import Image
 from datetime import datetime
@@ -176,7 +176,11 @@ def create_atask():
     fname = request.json.get("fname")
     with open(ATASK_DIR+f"/{fname}.t", "w") as f:
         for i, atask in enumerate(request.json.get("tasks")[3:], start=1):
-            f.write(f"$task_{i} = '{atask}'\n")
+            for j in range(len(atask)-1, 0, -1):
+                if atask[j] != " ":
+                    break
+                j -= 1
+            f.write(f"$task_{i} = '{atask[:j+1]}'\n")
     
     return jsonify({'success': True})
 
@@ -189,13 +193,21 @@ def load_atask():
             line = f.readline()
             if not line:
                 break
-            for i in range(1, len(line)):
-                if not line[i].isalnum() and line[i] not in ["_"]:
-                    tname = line[1:i]
-                    break
+            i = 1
+            tname, atask = "", ""
+            while i < len(line):
+                if not tname:
+                    if not line[i].isalnum() and line[i] not in ["_"]:
+                        tname = line[1:i]
+                else:
+                    if line[i] == "'":
+                        atask = line[i+1:].strip()[:-1]
+                        break
+                i += 1            
             else:
                 tname = line.strip()
-            tasks.append(tname)
+                atask = ""
+            tasks.append((tname, atask))
     return jsonify({'success': True, "tasks": tasks})
 
 if __name__ == '__main__':

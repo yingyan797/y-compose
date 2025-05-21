@@ -1,5 +1,5 @@
-#(task_1 & (task_2 T task_3));
+#(G(goal_2) & (F(goal_1) T (goal_1 U goal_3)));
 var2 $ where ~ex1 p where true: p notin $ & p+1 in $;
 allpos $;
-var2 TASK_1, TASK_2, TASK_3;
-((0 in TASK_1) & (ex1 v_1: v_1 in $ & 0<v_1&v_1<=max($) & (v_1 in TASK_3) & ex1 v_2: v_2 in $ & 0<=v_2&v_2<v_1 & (v_2 in TASK_2)));
+var2 GOAL_2, GOAL_1, GOAL_3;
+(((ex1 v_1: v_1 in $ & 0<=v_1&v_1<=max($) & false & (all1 v_2: v_2 in $ & 0<=v_2&v_2<=v_1 => (v_2 in GOAL_2))) | (all1 v_2: v_2 in $ & 0<=v_2&v_2<=max($) => (v_2 in GOAL_2))) & (ex1 v_3: v_3 in $ & 0<v_3&v_3<=max($) & (ex1 v_7: v_7 in $ & v_3<v_7&v_7<=max($) & (v_7 in GOAL_3) & (all1 v_8: v_8 in $ & v_3<=v_8&v_8<v_7 => (v_8 in GOAL_1))) & ex1 v_4: v_4 in $ & 0<=v_4&v_4<v_3 & (ex1 v_5: v_5 in $ & v_4<v_5&v_5<=v_3 & (v_5 in GOAL_1) & (all1 v_6: v_6 in $ & v_4<=v_6&v_6<v_5 => true))));

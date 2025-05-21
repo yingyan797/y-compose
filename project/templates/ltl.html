@@ -62,21 +62,23 @@
 <body style="background-color: lightcyan;">
     <h2>Y-Compose: Linear Temporal Logic | <a href="/ltl">reset</a> | <a href="/">Home</a></h2>
     <table style="margin: 10px; border-bottom: dashed;">
-        <tr><th class="annote" id="fkeys" onclick="hideShow('editor')">Formula +</th><td rowspan="2">
+        <tr><th>Formula</th><td rowspan="2">
             <textarea id="ifml" rows="4" style="width: 95%;" placeholder="Enter LTLf formula..."></textarea><br>
                 <div id="editor" style="display: none;"> Upload atomic tasks: 
-                    <input id="taskf" type="file" oninput="loadKeys()">
+                    <input id="taskf" type="file">
                     <div class="keyboard">
                             <button id="tkey-&" title="and">&</button><button id="tkey-|" title="or">|</button>
                             <button id="tkey-!" title="not">!</button><button id="tkey-U" title="Until">U</button>
                             <button id="tkey-F" title="Eventually">F</button><button id="tkey-G" title="Always">G</button>
                             <button id="tkey-T" title="Then">T</button><button id="tkey-()">()</button>
                             <button class="remove" id="tkey-clear">Clear</button>
+                            <input type="checkbox" id="tkmode" disabled>Enter full formula expanded
                     </div><div class="keyboard" id="taskKeys"></div>
                 </div></td>
             <th>Initial state</th><td id="initial">...</td>
             <td id="msgbox" rowspan="3" style="width: 100px; color: green;"></td></tr>
-        <tr><th class="remove" id="cfml">Clear</th><th>Accepting states</th><td id="accepting">...</td></tr>
+        <tr><td class="annote" id="fkeys" onclick="hideShow('editor')">keyboard...</td>
+            <th>Accepting states</th><td id="accepting">...</td></tr>
         <tr><th>File</th><td>
             <input type="file" id="ipf" oninput="uploadFile('ipf', 'fname')">
             <input type="text" id="fname" value="example" minlength="1"> 
@@ -95,28 +97,6 @@
     </tr></table><iframe id="ltlf2dfa" src="http://ltlf2dfa.diag.uniroma1.it/" width="97%" height="500px"></iframe>
 
     <script>
-        function loadKeys() {
-            const segs = document.getElementById("taskf").value.split("\\");
-            const fname = segs[segs.length-1];
-            fetch('/load_atask',
-                    {method: 'POST', headers: {
-                            'Content-Type': 'application/json'
-                        }, body: JSON.stringify({fname: fname})}
-                ).then(response => response.json()).then(data => {
-                    if (data.success) {
-                        data.tasks.forEach((t, i) => {
-                            const tnkey = document.createElement('button');
-                            tnkey.textContent = t;
-                            tnkey.addEventListener('click', () => {
-                                inputTextAtCursor(document.getElementById("ifml"), t)
-                            })
-                            document.getElementById("taskKeys").appendChild(tnkey);
-                        })
-                    } else {
-                        alert('Error creating dfa table: ');
-                    }
-            })
-        }
         document.addEventListener('DOMContentLoaded', function() {
             const loadButton = document.getElementById('load');
             const submitButton = document.getElementById('create');
@@ -124,15 +104,17 @@
             const writeButton = document.getElementById('write');
             const copyButton = document.getElementById('copy');
             const formulaBox = document.getElementById('ifml');
-            const formulaClear = document.getElementById('cfml');
             const p_mona = document.getElementById("mona");
             const p_formula = document.getElementById("p_formula");
             const clearColorButton = document.getElementById("clear-color");
             const drawDiagram = document.getElementById("draw-dfa");
             const diagram = document.getElementById("diagram");
             const msgbox = document.getElementById("msgbox");
+            const tkmode = document.getElementById("tkmode");
+            const taskf = document.getElementById("taskf");
 
             initKeys("[id^=tkey-]", formulaBox);
+
             function create_table(data) {
                 let trans_html = "";
                 p_formula.innerHTML = data.formula;
@@ -322,9 +304,35 @@
                 navigator.clipboard.writeText(p_formula.innerText);
             });
 
-            formulaClear.addEventListener('click', function() {
-                formulaBox.value = "";
-            });
+            taskf.addEventListener('input', function() {
+                const segs = document.getElementById("taskf").value.split("\\");
+                const fname = segs[segs.length-1];
+                fetch('/load_atask',
+                        {method: 'POST', headers: {
+                                'Content-Type': 'application/json'
+                            }, body: JSON.stringify({fname: fname})}
+                    ).then(response => response.json()).then(data => {  
+                        if (data.success) {
+                            tkmode.disabled = false;
+                            data.tasks.forEach((t, i) => {
+                                const tnkey = document.createElement('button');
+                                tnkey.textContent =t[0]+": '"+t[1] +"'";
+                                tnkey.title = t[0];
+                                tnkey.value = t[1];
+                                tnkey.addEventListener('click', () => {
+                                    let text = tnkey.title;
+                                    if (tkmode.checked) {
+                                        text = tnkey.value;
+                                    }
+                                    inputTextAtCursor(formulaBox, text);
+                                })
+                                document.getElementById("taskKeys").appendChild(tnkey);
+                            })
+                        } else {
+                            alert('Error creating dfa table: ');
+                        }
+                })
+            })
         })
     </script>
 </body>

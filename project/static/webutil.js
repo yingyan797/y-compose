@@ -51,7 +51,7 @@ function inputTextAtCursor(textarea, text) {
     // Handle all other operators
     else {
         let sep = " ";
-        if (["!", "U", "F", "G"].includes(text)) {
+        if (["!", "F", "G"].includes(text)) {
             sep = "";
         }
         textarea.value = textBefore + text + sep + textAfter;
