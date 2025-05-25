@@ -134,11 +134,11 @@ def create_dfa():
     ifml = request.json.get("formula")
     fname = request.json.get("fname")
     out = formula_to_dfa(ifml, fname)
-    if isinstance(out, tuple):
-        res = {'success': True, "mona": out[1]}
-        res.update(out[0])
+    if isinstance(out[0], tuple):
+        res = {'success': True, "mona": out[1][0]}
+        res.update(out[0][0])
         if (request.json.get("visual")):
-            res["diagram_code"] = output2dot(out[2])
+            res["diagram_code"] = output2dot(out[1][1])
         return jsonify(res)
 
 @app.route('/load_dfa', methods=["POST"])
@@ -154,7 +154,7 @@ def load_dfa():
     except IOError as e:
         return jsonify({'success': False, 'error': str(e)})
     res = {"success": True, "mona": mona_in}
-    res.update(parse_dfa(formula, mona_out))
+    res.update(parse_dfa(formula, mona_out)[0])
     if (request.json.get("visual")):
         res["diagram_code"] = output2dot(mona_out)
     return jsonify(res)
@@ -180,7 +180,7 @@ def create_atask():
                 if atask[j] != " ":
                     break
                 j -= 1
-            f.write(f"$task_{i} = '{atask[:j+1]}'\n")
+            f.write(f"$t{i} = '{atask[:j+1]}'\n")
     
     return jsonify({'success': True})
 

@@ -406,11 +406,16 @@ class LTLfUntil(LTLfBinaryOperator):
             if len(self.formulas) > 2
             else self.formulas[1].to_mona(v=ex_var, m=m)
         )
+        # return (
+        #     "(ex1 {0}: {0} in $ & {1}{6}{0}&{0}<={5} & {2} & "
+        #     "(all1 {3}: {3} in $ & {1}<={3}&{3}{6}{0} => {4}))".format(
+        #         ex_var, v, f2, all_var, f1, m, ahead
+        #     )
+        # )
+        AHEAD_OF = "<" if isinstance(self.formulas[0], LTLfTrue) else "<="
         return (
-            "(ex1 {0}: {0} in $ & {1}<{0}&{0}<={5} & {2} & "
-            "(all1 {3}: {3} in $ & {1}<={3}&{3}<{0} => {4}))".format(
-                ex_var, v, f2, all_var, f1, m
-            )
+            f"(ex1 {ex_var}: {ex_var} in $ & {v}{AHEAD_OF}{ex_var}&{ex_var}<={m} & {f2} & "
+            f"(all1 {all_var}: {all_var} in $ & {v}<={all_var}&{all_var}<={ex_var} => {f1}))"
         )
 
     # def to_ldlf(self):
@@ -495,7 +500,11 @@ class LTLfEventually(LTLfUnaryOperator):
 
     def to_mona(self, v="0", m="max($)") -> str:
         """Return the MONA encoding of an LTLf Eventually formula."""
-        return LTLfUntil([LTLfTrue(), self.f]).to_mona(v, m)
+        # return LTLfUntil([LTLfTrue(), self.f]).to_mona(v, m)
+        ex_var = unique_var()
+        f_body = self.f.to_mona(v=ex_var, m=m)
+        return f"(ex1 {ex_var}: {ex_var} in $ & {v}<={ex_var}&{ex_var}<={m} & {f_body})"
+        
 
     # def to_ldlf(self):
     #     """Convert the formula to LDLf."""
@@ -523,7 +532,10 @@ class LTLfAlways(LTLfUnaryOperator):
 
     def to_mona(self, v="0", m="max($)") -> str:
         """Return the MONA encoding of an LTLf Always formula."""
-        return LTLfRelease([LTLfFalse(), self.f]).to_mona(v, m)
+        # return LTLfEventually(self.f.negate()).negate().to_mona(v, m)
+        ex_var = unique_var()
+        f_body = self.f.to_mona(v=ex_var, m=m)
+        return f"(all1 {ex_var}: {ex_var} in $ & {v}<={ex_var}&{ex_var}<={m} => {f_body})"
 
     # def to_ldlf(self):
     #     """Convert the formula to LDLf."""

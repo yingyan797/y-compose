@@ -94,65 +94,6 @@ class Room:
         if label >= 2:
             return new_loc, self._reward_lev, label
         return new_loc, 0, 0
-    
-    def parse_compose(self, instr:str):
-        full_goals = torch.where(self.terrain>=2, 1, 0).to(dtype=torch.bool)
-        def task_and(masks):
-            masks = torch.stack(masks)
-            return torch.min(masks, dim=0).values
-        def task_or(masks):
-            masks = torch.stack(masks)
-            return torch.min(masks, dim=0).values
-        def task_not(mask):
-            neg = torch.logical_not(mask)
-            return torch.minimum(neg, full_goals)
-        comp_functions = {"and": task_and, "or": task_or, "not": task_not}
-        def parse_expr(expression:str) -> torch.Tensor:
-            if expression.startswith("'") and expression.endswith("'"):
-                return self.goals[expression[1:-1]]
-        
-            # Check for not, and, or operations
-            for op in ["not", "and", "or"]:
-                if expression.startswith(op + "(") and expression.endswith(")"):
-                    # Extract the content inside the parentheses
-                    content = expression[len(op)+1:-1]
-                    
-                    # For "not", we expect only one argument
-                    if op == "not":
-                        return task_not(parse_expr(content))
-                    
-                    # For "and" and "or", we split the arguments by comma
-                    # but we need to handle nested expressions correctly
-                    args = []
-                    current_arg = ""
-                    paren_level = 0
-                    
-                    for char in content:
-                        if char == '(' and (current_arg.endswith("not") or 
-                                        current_arg.endswith("and") or 
-                                        current_arg.endswith("or")):
-                            current_arg += char
-                            paren_level += 1
-                        elif char == '(':
-                            current_arg += char
-                            paren_level += 1
-                        elif char == ')':
-                            current_arg += char
-                            paren_level -= 1
-                        elif char == ',' and paren_level == 0:
-                            args.append(current_arg.strip())
-                            current_arg = ""
-                        else:
-                            current_arg += char
-                    
-                    if current_arg.strip():
-                        args.append(current_arg.strip())
-                    
-                    # Parse each argument recursively
-                    return comp_functions[op]([parse_expr(arg) for arg in args])
-            raise SyntaxError("Not recognizable compose instructions")
-        
-        return parse_expr(instr)
 
 def create_room(name):
     match name:

@@ -92,12 +92,13 @@ def parse_dfa(p_formula, dfa_text):
                 dot_trans[(state_i, state_j)] = [guard]
     min_state = max(1, min_state)
     matrix = [["" for _ in range(min_state, max_state+1)] for _ in range(min_state, max_state+1)]
+    mat_repr = [["" for _ in range(min_state, max_state+1)] for _ in range(min_state, max_state+1)]
     for c, guards in dot_trans.items():
         simplified_guard = simplify_guard(guards)
-        matrix[c[0]-1][c[1]-1] = str(simplified_guard).lower()
-    
-    result["matrix"] = matrix
-    return result
+        matrix[c[0]-1][c[1]-1] = simplified_guard
+        mat_repr[c[0]-1][c[1]-1] = str(simplified_guard).lower()
+    result["matrix"] = mat_repr
+    return result, matrix
 
 def formula_to_dfa(ifml, file_name):
     parser = LTLfParser()
@@ -117,10 +118,15 @@ def formula_to_dfa(ifml, file_name):
     if os.system(cmd) == 0:
         with open(opath, "r") as f:
             mona_output = f.read()
-        return parse_dfa(p_formula, mona_output), mona_in, mona_output
-    return False
+        return parse_dfa(p_formula, mona_output), (mona_in, mona_output) 
+    return [False], mona_in
 
 if __name__ == "__main__":
-    print(formula_to_dfa("(a U b) & (c U d)", "and_until"))
-    print(MONA_PATH)
+    print(formula_to_dfa("F(a) T (b U c)", "example")[0][1])
+    # print(MONA_PATH)
+    
+    # with open("project/ltlf_tools/mona.exe", "rb") as f:
+    #     b = f.read()
+    #     farr = np.frombuffer(b, dtype=np.uint8)
+    #     print(farr.max())
  

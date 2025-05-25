@@ -1,3 +1,3 @@
-$task_1 = 'F(goal_1 )'
-$task_2 = 'G(goal_2 )'
-$task_3 = 'goal_1 U goal_3'
+$t1 = 'F(goal_1 )'
+$t2 = 'G(goal_2 )'
+$t3 = 'goal_1 U goal_3'
