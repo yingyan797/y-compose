@@ -1,0 +1,5 @@
+#(G(t1) & t2);
+var2 $ where ~ex1 p where true: p notin $ & p+1 in $;
+allpos $;
+var2 T1, T2;
+((all1 v_1: v_1 in $ & 0<=v_1&v_1<=max($) => (v_1 in T1)) & (0 in T2));

@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Arrow, Rectangle
 
 class GoalOrientedBase:
-    def __init__(self, room:Room, learning_rate=0.1, gamma=0.98, epsilon=0.1, r_min=-1e8):
+    def __init__(self, room:Room, learning_rate=0.1, gamma=0.98, epsilon=0.1, r_min=-1e6):
         """
         Initialize the Goal-Oriented Q-Learning algorithm for a 2D reach-avoid navigation task.
         
@@ -64,11 +64,10 @@ class GoalOrientedBase:
                 if done > 0:
                     # Add the current state to the set of subgoals
                     self._add_goal(state)
-                    if done == 2:
-                        break   # Reach goal eventually, no need to stay here indefinately
+                    break   # Reach goal eventually, no need to stay here indefinately
 
             rewards_per_episode.append(episode_reward)
-            if episode % 100 == 0:
+            if episode % 400 == 0:
                 print(f"Episode {episode}, num goals {len(self.G)}, Avg Reward: {np.mean(rewards_per_episode[-100:]):.2f}")
                 self._save_progress()
         
@@ -79,13 +78,13 @@ class GoalOrientedBase:
     
 class GoalOrientedQLearning(GoalOrientedBase):
     def __init__(self, room:Room, pretrained=False):
-        super().__init__(room, pretrained)
+        super().__init__(room)
         # Action space: 8 directions (N, NE, E, SE, S, SW, W, NW)
-        self.actions = list(range(8))        
+        self.actions = list(range(room.n_actions))        
         # Q-table: state, subgoal, action -> value
         # State is (x, y), subgoal is (x, y)
         self.G = set() if not pretrained else set((goal[0], goal[1]) for goal in torch.load("project/static/subgoals.pt"))
-        self.Q = torch.zeros(room.shape+room.shape+(8,)) if not pretrained else torch.load(f"project/static/goal-q.pt")
+        self.Q = torch.zeros(room.shape+room.shape+(room.n_actions,)) if not pretrained else torch.load(f"project/static/goal-q.pt")
     
     def _train(self, state, action, reward, next_state, done):
         """Get Q-value for a state-subgoal-action triple."""
@@ -108,7 +107,7 @@ class GoalOrientedQLearning(GoalOrientedBase):
             max_next_q = torch.max(self.Q[nx, ny, goals[:, 0], goals[:, 1]])
             delta = reward + self.gamma * max_next_q - sub_q
 
-        new_q = sub_q + self.alpha * delta
+        new_q = sub_q + self.learning_rate * delta
         self.Q[sx, sy, goals[:, 0], goals[:, 1], action] = new_q
 
     def _save_progress(self):
@@ -123,14 +122,14 @@ class GoalOrientedQLearning(GoalOrientedBase):
         goals = torch.IntTensor(list(self.G))
         sx, sy = tuple(state[i].expand(goals.shape[0]) for i in range(2))
         qs = self.Q[sx, sy, goals[:, 0], goals[:, 1]]
-        max_av = torch.max(qs, 0)
+        max_av = torch.max(qs, 0).values
         action_values = {}
         for a in self.actions:
-            if max_av.values[a] not in action_values:
-                action_values[max_av.values[a]] = [a]
+            a_val = max_av[a].item()
+            if a_val not in action_values:
+                action_values[a_val] = [a]
             else:
-                action_values[max_av.values[a]].append(a)
-
+                action_values[a_val].append(a)
         best_actions = action_values[max(action_values.keys())]
         if len(best_actions) == 1:
             return best_actions[0]
@@ -141,7 +140,7 @@ class GoalOrientedQLearning(GoalOrientedBase):
                                      for r in range(self.env.shape[0]) 
                                      for c in range(self.env.shape[1]) 
                                      if mask[r,c] > 0])
-        q_subgoal = self.Q.permute(0,1,4,2,3).reshape(self.env.shape+(8,-1)).index_select(3, all_goals)
+        q_subgoal = self.Q.permute(0,1,4,2,3).reshape(self.env.shape+(self.env.n_actions,-1)).index_select(3, all_goals)
         return q_subgoal.max(dim=3).values
 
     def visualize_policy_with_arrows(self, mask, fn="policy"):
@@ -176,12 +175,12 @@ class GoalOrientedQLearning(GoalOrientedBase):
         # Action directions: 0=N, 1=NE, 2=E, 3=SE, 4=S, 5=SW, 6=W, 7=NW
         directions = {
             0: (0, 0.4),    # North (up)
-            1: (0.3, 0.3),  # Northeast
-            2: (0.4, 0),    # East (right)
-            3: (0.3, -0.3), # Southeast
-            4: (0, -0.4),   # South (down)
-            5: (-0.3, -0.3),# Southwest
-            6: (-0.4, 0),   # West (left)
+            4: (0.3, 0.3),  # Northeast
+            1: (0.4, 0),    # East (right)
+            5: (0.3, -0.3), # Southeast
+            2: (0, -0.4),   # South (down)
+            6: (-0.3, -0.3),# Southwest
+            3: (-0.4, 0),   # West (left)
             7: (-0.3, 0.3)  # Northwest
         }
         
@@ -413,21 +412,20 @@ class GoalOrientedNAF(GoalOrientedBase):
 # Example usage
 if __name__ == "__main__":
     # Initialize the environment and agent
-    # agent = GoalOrientedQLearning(
-    #     room=load_room('saved_disc/color shape.pt'),
-    #     pretrained=False,
-    # )
-    agent = GoalOrientedNAF(
-        room=load_room('saved_cont', 'two_goals.pt'),
-        goal_resolution=5
+    agent = GoalOrientedQLearning(
+        room=load_room("saved_disc", "9room.pt", 4),
+        pretrained=False,
     )
+    # agent = GoalOrientedNAF(
+    #     room=load_room('saved_cont', 'road.pt', 0),
+    #     goal_resolution=5
+    # )
     
     # Train the agent
     agent.env.start()
-    rewards = agent.train_episodes(num_episodes=401, max_steps_per_episode=100)
-    # mask = agent.parse_compose("and(not('goal-2'), 'goal-1')")
-    # mask = agent.parse_compose("not(and('goal-1', 'goal-2'))")
-    # agent.visualize_policy_with_arrows(mask, "not-(g1 and g2")
+    rewards = agent.train_episodes(num_episodes=501, max_steps_per_episode=20)
+    mask = agent.env.goals["goal_2"]
+    agent.visualize_policy_with_arrows(mask, "9room_goal_2")
     # agent.test_policy(mask, [8,1])
     # # Plot learning curve
     # plt.figure(figsize=(10, 5))

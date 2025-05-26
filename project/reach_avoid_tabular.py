@@ -3,11 +3,11 @@ import numpy as np
 from PIL import Image
 
 class Room:
-    def __init__(self, height=30, width=30, mode="saved_disc"):
+    def __init__(self, height=30, width=30, n_actions=8):
         self.shape = (height, width)
         self.state_dim = 2
         self.action_dim = 1
-        self.is_discrete = mode == "saved_discrete"
+        self.n_actions = n_actions
         self.base = torch.ones((height, width), dtype=torch.bool)
         self._reward_lev = 100
         self.goals = dict[str, torch.BoolTensor]()
@@ -30,7 +30,7 @@ class Room:
             
     def start(self, start_state=None, restriction=None):
         def to_tensor(loc):
-            return torch.IntTensor(loc) if self.is_discrete else torch.FloatTensor(loc)
+            return torch.IntTensor(loc) if self.n_actions else torch.FloatTensor(loc)
 
         if self.terrain is None:
             base = self.base.to(torch.uint8)*2
@@ -52,21 +52,21 @@ class Room:
     def step(self, action, trace=False):
         new_loc = [0,0]
         label = 0
-        if self.is_discrete:
+        if self.n_actions:
             match action:   # 0..7
                 case 0:
                     drn = [-1, 0]
-                case 1: 
+                case 4: 
                     drn = [-1, 1]
-                case 2:
+                case 1:
                     drn = [0, 1]
-                case 3:
-                    drn = [1, 1]
-                case 4:
-                    drn = [1, 0]
                 case 5:
-                    drn = [1, -1]
+                    drn = [1, 1]
+                case 2:
+                    drn = [1, 0]
                 case 6:
+                    drn = [1, -1]
+                case 3:
                     drn = [0, -1]
                 case 7:
                     drn = [-1, -1]
@@ -127,11 +127,11 @@ def create_room(name):
 
     return room
 
-def load_room(mode, name):
+def load_room(mode, name, n_actions=8):
     fn = f"project/static/{mode}/{name}"
     project = torch.load(fn)
     h, w = tuple(project['dim'])
-    room = Room(h, w, mode)
+    room = Room(h, w, n_actions)
     layers = {}
     always_mask = torch.zeros(h, w, dtype=bool)
     for layer in project["terrain"]:
