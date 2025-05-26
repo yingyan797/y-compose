@@ -3,6 +3,7 @@ import ltlf_tools.ltlf as ltlf
 from reach_avoid_tabular import Room, load_room
 from boolean_task import GoalOrientedBase, GoalOrientedNAF, GoalOrientedQLearning
 from collections import deque
+
 import torch, sympy
 import numpy as np
 
@@ -33,7 +34,7 @@ class AtomicTask:
             self.goal = self.formula.formulas[1]
         elif isinstance(self.formula, ltlf.LTLfEventually):
             self.condition = None
-            self.condition_region = self.full_goals
+            self.condition_region = None
             self.condition_valid = torch.ones_like(self.full_goals)
             self.goal = self.formula.f
         else:
@@ -43,7 +44,7 @@ class AtomicTask:
         self.goal_valid = self._valid_region(self.goal)
 
     def __repr__(self):
-        return self.formula
+        return str(self.formula)
     
     def _goal_region(self, formula:ltlf.LTLfFormula):
         if isinstance(formula, ltlf.LTLfNot):
@@ -69,10 +70,10 @@ class AtomicTask:
         return self.goal_valid[loc[0], loc[1]] > 0 and self.condition_valid[loc[0], loc[1]].item() > 0
     
     def get_policy(self, qmodel:GoalOrientedBase):
-        return torch.ones(self.goal_region.shape)
         goal_policy = qmodel.q_compose(self.goal_region)
-        condition_policy = qmodel.q_compose(self.condition_region)
-        return condition_policy + torch.where(goal_policy > 0, goal_policy, 0) # nonegative goal policy offsets condition policy
+        condition_policy = qmodel.q_compose(self.condition_region) if self.condition_region is not None else torch.zeros_like(goal_policy)
+        # return condition_policy + torch.where(goal_policy > 0, goal_policy, 0) # nonegative goal policy offsets condition policy
+        return condition_policy + goal_policy # nonegative goal policy offsets condition policy
         
 def dfa_and(atomic_qs):
     return torch.min(torch.stack(atomic_qs), dim=0).values
@@ -180,9 +181,17 @@ class DFA_dijkstra(DFA_Task):
         pass
 
 if __name__ == "__main__":
-    room = load_room("saved_disc", "9room.pt")
+    room = load_room("saved_disc", "9room.pt", 4)
+    goal_1 = room.goals.pop('goal_1')
+    print(room.goals.keys())
     room.start()
-    # at = AtomicTask("(goal_1 U goal_2)", room)
+    goal_learner = GoalOrientedQLearning(room)
+    goal_learner.train_episodes(num_episodes=1501, max_steps_per_episode=50)
+
+    at = AtomicTask("(!goal_3 U (goal_2 | goal_5))", room)
+    # at = AtomicTask("F goal_2", room)
+    print(at)
+    policy = at.get_policy(goal_learner)
+    room.draw_policy(policy, fn="9room_goal_2")
     # print(at.formula)
     # dfa_task = DFA_Task("(G(t1) & t2)", {"t1": AtomicTask("F(goal_2)", room), "t2": AtomicTask("F(!goal_1)", room)})
-    print(sympy.true)
