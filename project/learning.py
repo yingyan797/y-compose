@@ -73,7 +73,7 @@ class AtomicTask:
         goal_policy = qmodel.q_compose(self.goal_region)
         condition_policy = qmodel.q_compose(self.condition_region) if self.condition_region is not None else torch.zeros_like(goal_policy)
         # return condition_policy + torch.where(goal_policy > 0, goal_policy, 0) # nonegative goal policy offsets condition policy
-        return condition_policy + goal_policy # nonegative goal policy offsets condition policy
+        return condition_policy + torch.where(goal_policy > 0, goal_policy, 0) # nonegative goal policy offsets condition policy
         
 def dfa_and(atomic_qs):
     return torch.min(torch.stack(atomic_qs), dim=0).values
@@ -186,7 +186,7 @@ if __name__ == "__main__":
     print(room.goals.keys())
     room.start()
     goal_learner = GoalOrientedQLearning(room)
-    goal_learner.train_episodes(num_episodes=1501, max_steps_per_episode=50)
+    goal_learner.train_episodes(num_iterations=50, num_episodes=10, max_steps_per_episode=50)
 
     at = AtomicTask("(!goal_3 U (goal_2 | goal_5))", room)
     # at = AtomicTask("F goal_2", room)

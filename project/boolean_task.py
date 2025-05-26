@@ -36,37 +36,44 @@ class GoalOrientedBase:
     def select_action(self, *args):
         raise NotImplementedError()
 
-    def train_episodes(self, num_episodes=1000, max_steps_per_episode=100, fn=""):
+    def train_episodes(self, num_iterations=10, num_episodes=1000, max_steps_per_episode=100, fn=""):
         """Train the agent using Goal-Oriented Q-Learning."""
         rewards_per_episode = []
-        for episode in range(num_episodes):
-            # Initialize state
-            state = self.env.start()
-                
-            episode_reward = 0
-            steps = 0
-            
-            while steps < max_steps_per_episode:
-                action = self.select_action(state)
-                next_state, reward, done = self.env.step(action)
-                episode_reward += reward
-                
-                # Update Q-values for each subgoal
-                if self.G:
-                    self._train(state, action, reward, next_state, done)
-                
-                state = next_state
-                steps += 1
-                
-                if done > 0:
-                    # Add the current state to the set of subgoals
-                    self._add_goal(state)
-                    # break   # Reach goal eventually, no need to stay here indefinately
+        gnames = list(self.env.goals.keys())
+        for iteration in range(num_iterations):
+            random.shuffle(gnames)
+            for gname in gnames:
+                gmask = self.env.goals[gname]
+                for episode in range(num_episodes):
+                    # Initialize state
+                    state = self.env.start()
+                        
+                    episode_reward = 0
+                    steps = 0
+                    
+                    while steps < max_steps_per_episode:
+                        action = self.select_action(state)
+                        next_state, reward, done = self.env.step(action)
+                        if gmask[next_state[0], next_state[1]]:
+                            reward = 0
+                            done = 1
+                        episode_reward += reward
+                        
+                        # Update Q-values for each subgoal
+                        if self.G:
+                            self._train(state, action, reward, next_state, done)
+                        
+                        state = next_state
+                        steps += 1
+                        
+                        if done > 0:
+                            # Add the current state to the set of subgoals
+                            self._add_goal(state)
+                            if done >= 2:
+                                break   # Reach goal eventually, no need to continue (mask goal reached)
 
-            rewards_per_episode.append(episode_reward)
-            if episode % 100 == 0:
-                print(f"Episode {episode}, num goals {len(self.G)}, Avg Reward: {np.mean(rewards_per_episode[-100:]):.2f}")
-                self._save_progress()
+            print(f"Iteration {iteration}, gnames: {gnames}, num goals {len(self.G)}")
+            # self._save_progress()
         
         return rewards_per_episode
     

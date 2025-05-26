@@ -97,6 +97,7 @@ class Room:
         self.loc = new_loc
         if trace:
             self._trace.append(new_loc)
+
         if label >= 2:
             return new_loc, self._reward_lev, label
         return new_loc, 0, 0
