@@ -185,17 +185,17 @@ class DFA_dijkstra(DFA_Task):
         pass
 
 if __name__ == "__main__":
-    room = load_room("saved_disc", "9room.pt", 4)
-    starting = room.goals.pop('starting')
-    print(room.goals.keys())
+    room = load_room("saved_disc", "1room.pt", 4)
+    if 'starting' in room.goals:
+        starting = room.goals.pop('starting')
     room.start()
     goal_learner = GoalOrientedQLearning(room)
-    goal_learner.train_episodes(num_iterations=5, num_episodes=20, max_steps_per_episode=100)
+    goal_learner.train_episodes(num_iterations=10, num_episodes=200, max_steps_per_episode=50)
 
     at = AtomicTask("F(goal_2)", room)
     # at = AtomicTask("F goal_2", room)
     print(at)
     policy = at.get_policy(goal_learner)
-    room.draw_policy(policy, fn="9room_goal_2")
+    room.draw_policy(policy, fn="1room_goal_2")
     # print(at.formula)
     # dfa_task = DFA_Task("(G(t1) & t2)", {"t1": AtomicTask("F(goal_2)", room), "t2": AtomicTask("F(!goal_1)", room)})

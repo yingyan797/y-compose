@@ -11,7 +11,7 @@ class Room:
         self.action_dim = 1
         self.n_actions = n_actions
         self.base = torch.ones((height, width), dtype=torch.bool)
-        self._reward_lev = 1000
+        self._reward_lev = 100
         self.goals = dict[str, torch.BoolTensor]()
         self.always = None
         self.terrain = None
@@ -100,7 +100,7 @@ class Room:
 
         if label >= 2:
             return new_loc, self._reward_lev, label
-        return new_loc, -0.1, 0     # -0.1 for no goal reached
+        return new_loc, -0.01, 0     # -0.01 for no goal reached
     
     def draw_policy(self, q_values, mask=None, fn="policy"):
         """
