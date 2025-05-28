@@ -70,10 +70,14 @@ class AtomicTask:
         return self.goal_valid[loc[0], loc[1]] > 0 and self.condition_valid[loc[0], loc[1]].item() > 0
     
     def get_policy(self, qmodel:GoalOrientedBase):
-        goal_policy = qmodel.q_compose(self.goal_region)
-        condition_policy = qmodel.q_compose(self.condition_region) if self.condition_region is not None else torch.zeros_like(goal_policy)
+        # goal_policy = qmodel.q_compose(self.goal_region)
+        valid_goal = self.goal_region & self.condition_valid
+        if not torch.any(valid_goal):
+            raise ValueError("No valid goal region for this task")
+        joint_policy = qmodel.q_compose(valid_goal)
+        condition_policy = qmodel.q_compose(self.condition_region) if self.condition_region is not None else torch.zeros_like(joint_policy)
         # return condition_policy + torch.where(goal_policy > 0, goal_policy, 0) # nonegative goal policy offsets condition policy
-        return condition_policy + torch.where(goal_policy > 0, goal_policy, 0) # nonegative goal policy offsets condition policy
+        return condition_policy + joint_policy
         
 def dfa_and(atomic_qs):
     return torch.min(torch.stack(atomic_qs), dim=0).values
@@ -182,13 +186,13 @@ class DFA_dijkstra(DFA_Task):
 
 if __name__ == "__main__":
     room = load_room("saved_disc", "9room.pt", 4)
-    goal_1 = room.goals.pop('goal_1')
+    starting = room.goals.pop('starting')
     print(room.goals.keys())
     room.start()
     goal_learner = GoalOrientedQLearning(room)
-    goal_learner.train_episodes(num_iterations=50, num_episodes=10, max_steps_per_episode=50)
+    goal_learner.train_episodes(num_iterations=5, num_episodes=20, max_steps_per_episode=100)
 
-    at = AtomicTask("(!goal_3 U (goal_2 | goal_5))", room)
+    at = AtomicTask("F(goal_2)", room)
     # at = AtomicTask("F goal_2", room)
     print(at)
     policy = at.get_policy(goal_learner)

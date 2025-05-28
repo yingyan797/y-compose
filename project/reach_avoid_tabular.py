@@ -11,7 +11,7 @@ class Room:
         self.action_dim = 1
         self.n_actions = n_actions
         self.base = torch.ones((height, width), dtype=torch.bool)
-        self._reward_lev = 20
+        self._reward_lev = 1000
         self.goals = dict[str, torch.BoolTensor]()
         self.always = None
         self.terrain = None
@@ -100,7 +100,7 @@ class Room:
 
         if label >= 2:
             return new_loc, self._reward_lev, label
-        return new_loc, 0, 0
+        return new_loc, -0.1, 0     # -0.1 for no goal reached
     
     def draw_policy(self, q_values, mask=None, fn="policy"):
         """
@@ -229,9 +229,10 @@ def load_room(mode, name, n_actions=8):
         if goal == 'obstacle':
             room.base = torch.logical_not(mask)
         else:
-            layers[goal] = mask
-            if layer["always"]:
-                always_mask = torch.maximum(always_mask, mask)
+            if torch.any(mask):
+                layers[goal] = mask
+                if layer["always"]:
+                    always_mask = torch.maximum(always_mask, mask)
     room.always = always_mask
     room.goals = layers
     return room

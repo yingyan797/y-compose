@@ -3,13 +3,13 @@ import random
 from reach_avoid_tabular import torch, Room, create_room, load_room, Image
 
 class GoalOrientedBase:
-    def __init__(self, room:Room, learning_rate=0.1, gamma=0.98, epsilon=0.1, r_min=-1e7):
+    def __init__(self, room:Room, learning_rate=0.1, gamma=0.99, r_min=-1e7):
         """
         Initialize the Goal-Oriented Q-Learning algorithm for a 2D reach-avoid navigation task.
         
         Args:
-            grid_size: Size of the square grid environment
-            alpha: Learning rate
+            room: Room object
+            learning_rate: Learning rate
             gamma: Discount factor
             epsilon: Exploration constant
             r_min: Lower-bound extended reward
@@ -17,7 +17,7 @@ class GoalOrientedBase:
         self.env = room
         self.learning_rate = learning_rate
         self.gamma = gamma
-        self.epsilon = epsilon
+        self.epsilon = 0.5
         self.r_min = r_min
         self.G = set() 
 
@@ -39,9 +39,11 @@ class GoalOrientedBase:
     def train_episodes(self, num_iterations=10, num_episodes=1000, max_steps_per_episode=100, fn=""):
         """Train the agent using Goal-Oriented Q-Learning."""
         rewards_per_episode = []
-        gnames = list(self.env.goals.keys())
+        gnames = list([name for name, gmask in self.env.goals.items() if gmask.any()])
+        self.epsilon = 0.5
         for iteration in range(num_iterations):
             random.shuffle(gnames)
+            n_exceeded = 0
             for gname in gnames:
                 gmask = self.env.goals[gname]
                 for episode in range(num_episodes):
@@ -54,8 +56,8 @@ class GoalOrientedBase:
                     while steps < max_steps_per_episode:
                         action = self.select_action(state)
                         next_state, reward, done = self.env.step(action)
-                        if gmask[next_state[0], next_state[1]]:
-                            reward = 0
+                        if done >= 2 and not gmask[next_state[0], next_state[1]]:
+                            reward = -0.1
                             done = 1
                         episode_reward += reward
                         
@@ -71,8 +73,11 @@ class GoalOrientedBase:
                             self._add_goal(state)
                             if done >= 2:
                                 break   # Reach goal eventually, no need to continue (mask goal reached)
-
-            print(f"Iteration {iteration}, gnames: {gnames}, num goals {len(self.G)}")
+                    else:
+                        n_exceeded += 1
+                    self.epsilon = max(0.05, self.epsilon*0.99) # decay epsilon
+                    
+            print(f"Iteration {iteration}, gnames: {gnames}, num goals {len(self.G)}, exceeded {n_exceeded}|{num_episodes*len(gnames)}")
             # self._save_progress()
         
         return rewards_per_episode
