@@ -19,7 +19,7 @@ class GoalOrientedBase:
         self.gamma = gamma
         self.epsilon = 0.5
         self.r_min = r_min
-        self.G = set() 
+        self.G = [set() for _ in range(len(room.goals))] 
         self.goal_regions = []
         self.goal_ids = []
         for goal_id, goal_region in room.goals.items():
@@ -30,21 +30,26 @@ class GoalOrientedBase:
 
 
     def _random_condition(self, goal_id):
-        return not goal_id in set(map(lambda x: x[2], self.G)) or random.random() < self.epsilon
+        return not self.G[goal_id] or random.random() < self.epsilon
     
     def _train(self, *args):
         raise NotImplementedError()
 
     def _save_progress(self):
         pass
-
+    
+    def _get_all_goals(self):
+        all_goals = set()
+        for g in self.G:
+            all_goals.update(g)
+        return all_goals
+    
     def _add_goal(self, state):
         state = tuple(state.numpy())
-        if state not in set((g[0], g[1]) for g in self.G):
+        if state not in self._get_all_goals():
             for i, goal_region in enumerate(self.goal_regions):
                 if goal_region[state[0], state[1]]:
-                    self.G.add((state[0], state[1], i))
-
+                    self.G[i].add((state[0], state[1]))
 
     def select_action(self, *args):
         raise NotImplementedError()
@@ -67,7 +72,7 @@ class GoalOrientedBase:
                         if done > 0:
                             # Add the current state to the set of subgoals
                             self._add_goal(next_state)
-                        if self.G:
+                        if self.G[goal_id]:
                             self._train(state, action, reward, next_state, done, goal_id)
                         
                         state = next_state
@@ -77,7 +82,7 @@ class GoalOrientedBase:
                             break   # Reach goal eventually, no need to continue (mask goal reached)
                     # self.epsilon = max(0.05, self.epsilon*0.99) # decay epsilon
                     
-            print(f"Iteration {iteration}, gnames: {goal_id}, num goals {len(self.G)}")
+            print(f"Iteration {iteration}, gnames: {goal_id}, num goals {[len(g) for g in self.G]}")
             # self._save_progress()
     
     def q_compose(self, mask):
@@ -90,46 +95,42 @@ class GoalOrientedQLearning(GoalOrientedBase):
         self.actions = list(range(room.n_actions))        
         # Q-table: state, subgoal, action -> value
         # State is (x, y), subgoal is (x, y)
-        self.G = set()
         self.Q = torch.zeros(room.shape+room.shape+(room.n_actions,)) if not pretrained else torch.load(f"project/static/goal-q.pt")
     
     def _train(self, state, action, reward, next_state, done, goal_id):
         """Get Q-value for a state-subgoal-action triple."""
-        goals = set()
-        mask_goals = set()
-        for g in self.G:
-            if g[2] == goal_id:
-                mask_goals.add((g[0], g[1]))
-            goals.add((g[0], g[1]))
-        goals = torch.IntTensor(list(goals))
+        goals = torch.IntTensor(list(self._get_all_goals()))
         sx, sy = tuple(state[i].expand(goals.shape[0]) for i in range(2))
         action = torch.IntTensor([action]).expand(goals.shape[0])
         nx, ny = tuple(next_state[i].expand(goals.shape[0]) for i in range(2))
 
         sub_q = self.Q[sx, sy, goals[:, 0], goals[:, 1], action]
 
-        if done > 0:
-            delta = -sub_q
-            goal_neq = []
-            goal_eq = -1
-            gmask = self.goal_regions[goal_id]
-            in_mask = gmask[next_state[0], next_state[1]]
-            for i in range(goals.shape[0]):
-                if goal_eq >= 0 or not torch.equal(next_state, goals[i]):
-                    if in_mask or not gmask[goals[i][0], goals[i][1]]:
-                        goal_neq.append(i)
-                else:
-                    goal_eq = i
-            delta[goal_neq] = self.r_min
-            if goal_eq == -1:
-                print(next_state, goals)
-                raise ValueError("No goal reached during training, error in goal identification")
-            delta[goal_eq] += reward
-        else:
-            mask_goals = torch.IntTensor(list(mask_goals))
+        def nongoal_update(r):
+            mask_goals = torch.IntTensor(list(self.G[goal_id]))
             nx, ny = tuple(next_state[i].expand(mask_goals.shape[0]) for i in range(2))
             max_next_q = torch.max(self.Q[nx, ny, mask_goals[:, 0], mask_goals[:, 1]])
-            delta = reward + self.gamma * max_next_q - sub_q
+            delta = r + self.gamma * max_next_q - sub_q
+            return delta
+        
+        if done > 0:
+            goal_eq = -1
+            for i in range(goals.shape[0]):
+                if torch.equal(next_state, goals[i]):
+                    goal_eq = i
+                    break
+            if goal_eq < 0:
+                raise ValueError("No goal reached during training, error in goal identification")
+            if tuple(next_state.numpy()) in self.G[goal_id]:
+                delta = reward - sub_q
+                goal_neq = list(range(goals.shape[0]))
+                goal_neq.remove(goal_eq)
+                delta[goal_neq] = self.r_min
+            else:
+                delta = torch.zeros_like(sub_q)
+                delta[goal_eq] = reward - sub_q[goal_eq]
+        else:
+            delta = nongoal_update(reward)
 
         new_q = sub_q + self.learning_rate * delta
         self.Q[sx, sy, goals[:, 0], goals[:, 1], action] = new_q
@@ -143,7 +144,7 @@ class GoalOrientedQLearning(GoalOrientedBase):
         if self._random_condition(goal_id):
             return random.choice(self.actions)
          # Choose the best action based on current goals
-        goals = torch.IntTensor(list(set((g[0], g[1]) for g in self.G if g[2] == goal_id)))
+        goals = torch.IntTensor(list(self.G[goal_id]))
         sx, sy = tuple(state[i].expand(goals.shape[0]) for i in range(2))
         qs = self.Q[sx, sy, goals[:, 0], goals[:, 1]]
         max_av = torch.max(qs, 0).values

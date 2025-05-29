@@ -190,7 +190,7 @@ if __name__ == "__main__":
         starting = room.goals.pop('starting')
     room.start()
     goal_learner = GoalOrientedQLearning(room)
-    goal_learner.train_episodes(num_iterations=10, num_episodes=200, max_steps_per_episode=50)
+    goal_learner.train_episodes(num_iterations=10, num_episodes=100, max_steps_per_episode=150)
 
     at = AtomicTask("F(goal_2)", room)
     # at = AtomicTask("F goal_2", room)
