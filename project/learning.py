@@ -188,9 +188,10 @@ if __name__ == "__main__":
     room = load_room("saved_disc", "1room.pt", 4)
     if 'starting' in room.goals:
         starting = room.goals.pop('starting')
+    print(room.goals.keys())
     room.start()
     goal_learner = GoalOrientedQLearning(room)
-    goal_learner.train_episodes(num_iterations=10, num_episodes=100, max_steps_per_episode=150)
+    goal_learner.train_episodes()
 
     at = AtomicTask("F(goal_2)", room)
     # at = AtomicTask("F goal_2", room)

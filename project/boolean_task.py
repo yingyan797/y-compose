@@ -17,20 +17,13 @@ class GoalOrientedBase:
         self.env = room
         self.learning_rate = learning_rate
         self.gamma = gamma
-        self.epsilon = 0.5
         self.r_min = r_min
-        self.G = [set() for _ in range(len(room.goals))] 
-        self.goal_regions = []
-        self.goal_ids = []
-        for goal_id, goal_region in room.goals.items():
-            if goal_region.any():
-                self.goal_ids.append(goal_id)
-                self.goal_regions.append(goal_region)
-        print(self.goal_ids)
+        self.G = set()
+        self.epsilon = 0.5
+        self.decay_rate = 0.99
 
-
-    def _random_condition(self, goal_id):
-        return not self.G[goal_id] or random.random() < self.epsilon
+    def _random_condition(self):
+        return not self.G or random.random() < self.epsilon
     
     def _train(self, *args):
         raise NotImplementedError()
@@ -38,52 +31,60 @@ class GoalOrientedBase:
     def _save_progress(self):
         pass
     
-    def _get_all_goals(self):
-        all_goals = set()
-        for g in self.G:
-            all_goals.update(g)
-        return all_goals
-    
     def _add_goal(self, state):
-        state = tuple(state.numpy())
-        if state not in self._get_all_goals():
-            for i, goal_region in enumerate(self.goal_regions):
-                if goal_region[state[0], state[1]]:
-                    self.G[i].add((state[0], state[1]))
+        self.G.add(tuple(state.numpy()))
 
+    def _remove_goal(self):
+        goals = list(self.G)
+        hidden_goals = []
+        if self.mis_coverage_terrain is not None:
+            i = 0
+            while i < len(goals):
+                if not self.mis_coverage_terrain[goals[i][0], goals[i][1]]:
+                    hidden_goals.append(goals.pop(i))
+                else:
+                    i += 1
+        return goals, hidden_goals
+    
     def select_action(self, *args):
         raise NotImplementedError()
 
-    def train_episodes(self, num_iterations=10, num_episodes=1000, max_steps_per_episode=100, fn=""):
+    def train_episodes(self, num_episodes=1000, max_steps_per_episode=100, fn=""):
         """Train the agent using Goal-Oriented Q-Learning."""
-        self.epsilon = 0.1
-        for iteration in range(num_iterations):
-            for goal_id in random.sample(range(len(self.goal_ids)), len(self.goal_ids)):
-                gmask = self.goal_regions[goal_id]
-                for episode in range(num_episodes):
-                    # Initialize state
-                    state = self.env.start()
-                    steps = 0
-                    
-                    while steps < max_steps_per_episode:
-                        action = self.select_action(state, goal_id)
-                        next_state, reward, done = self.env.step(action)
-                        # Update Q-values for each subgoal
-                        if done > 0:
-                            # Add the current state to the set of subgoals
-                            self._add_goal(next_state)
-                        if self.G[goal_id]:
-                            self._train(state, action, reward, next_state, done, goal_id)
-                        
-                        state = next_state
-                        steps += 1
+        epsilon = self.epsilon
+        for episode in range(num_episodes):
+            # Initialize state
+            state = self.env.start()
+            mis_coverage_terrain = []
+            for goal_id, gmask in self.env.goals.items():
+                if gmask.any() and not gmask[state[0], state[1]]:
+                    mis_coverage_terrain.append(gmask)
+            mis_coverage_terrain = torch.stack(mis_coverage_terrain).max(0).values if mis_coverage_terrain else None
+            self.mis_coverage_terrain = mis_coverage_terrain
+            steps = 0
+            
+            while steps < max_steps_per_episode:
+                action = self.select_action(state)
+                next_state, reward, done = self.env.step(action)
 
-                        if gmask[next_state[0], next_state[1]]:
-                            break   # Reach goal eventually, no need to continue (mask goal reached)
-                    # self.epsilon = max(0.05, self.epsilon*0.99) # decay epsilon
+                if mis_coverage_terrain is not None and done > 0 and not mis_coverage_terrain[next_state[0], next_state[1]]:
+                    self._add_goal(next_state)
+                    done = 0
+
+                # Update Q-values for each subgoal
+                if self.G:
+                    self._train(state, action, reward, next_state, done)
+                if done > 0:
+                    # Add the current state to the set of subgoals
+                    self._add_goal(next_state)
+                    break
+                
+                state = next_state
+                steps += 1
+            if episode % 100 == 0:
+                print(f"Episode {episode} completed with {len(self.G)} goals steps {steps}/{max_steps_per_episode} why {done}")
                     
-            print(f"Iteration {iteration}, gnames: {goal_id}, num goals {[len(g) for g in self.G]}")
-            # self._save_progress()
+        self.epsilon = epsilon
     
     def q_compose(self, mask):
         pass
@@ -97,56 +98,45 @@ class GoalOrientedQLearning(GoalOrientedBase):
         # State is (x, y), subgoal is (x, y)
         self.Q = torch.zeros(room.shape+room.shape+(room.n_actions,)) if not pretrained else torch.load(f"project/static/goal-q.pt")
     
-    def _train(self, state, action, reward, next_state, done, goal_id):
+    def _train(self, state, action, reward, next_state, done):
         """Get Q-value for a state-subgoal-action triple."""
-        goals = torch.IntTensor(list(self._get_all_goals()))
-        sx, sy = tuple(state[i].expand(goals.shape[0]) for i in range(2))
-        action = torch.IntTensor([action]).expand(goals.shape[0])
-        nx, ny = tuple(next_state[i].expand(goals.shape[0]) for i in range(2))
+        goal_tensor = torch.IntTensor(list(self.G))
+        sx, sy = tuple(state[i].expand(goal_tensor.shape[0]) for i in range(2))
+        action = torch.IntTensor([action]).expand(goal_tensor.shape[0])
+        nx, ny = tuple(next_state[i].expand(goal_tensor.shape[0]) for i in range(2))
+        current_q = self.Q[sx, sy, goal_tensor[:, 0], goal_tensor[:, 1], action]
 
-        sub_q = self.Q[sx, sy, goals[:, 0], goals[:, 1], action]
-
-        def nongoal_update(r):
-            mask_goals = torch.IntTensor(list(self.G[goal_id]))
-            nx, ny = tuple(next_state[i].expand(mask_goals.shape[0]) for i in range(2))
-            max_next_q = torch.max(self.Q[nx, ny, mask_goals[:, 0], mask_goals[:, 1]])
-            delta = r + self.gamma * max_next_q - sub_q
-            return delta
-        
         if done > 0:
-            goal_eq = -1
-            for i in range(goals.shape[0]):
-                if torch.equal(next_state, goals[i]):
-                    goal_eq = i
+            for i in range(goal_tensor.shape[0]):
+                if torch.equal(next_state, goal_tensor[i]):
+                    goal_non_eq = list(range(i))+list(range(i+1, goal_tensor.shape[0]))
                     break
-            if goal_eq < 0:
-                raise ValueError("No goal reached during training, error in goal identification")
-            if tuple(next_state.numpy()) in self.G[goal_id]:
-                delta = reward - sub_q
-                goal_neq = list(range(goals.shape[0]))
-                goal_neq.remove(goal_eq)
-                delta[goal_neq] = self.r_min
             else:
-                delta = torch.zeros_like(sub_q)
-                delta[goal_eq] = reward - sub_q[goal_eq]
+                goal_non_eq = list(range(goal_tensor.shape[0]))
+            
+            delta = reward - current_q
+            delta[goal_non_eq] = self.r_min
         else:
-            delta = nongoal_update(reward)
-
-        new_q = sub_q + self.learning_rate * delta
-        self.Q[sx, sy, goals[:, 0], goals[:, 1], action] = new_q
+            next_q = self.Q[nx, ny, goal_tensor[:, 0], goal_tensor[:, 1]]
+            max_next_q = next_q.max(1).values
+            delta = reward + self.gamma * max_next_q - current_q
+            
+        new_q = current_q + self.learning_rate * delta
+        self.Q[sx, sy, goal_tensor[:, 0], goal_tensor[:, 1], action] = new_q
 
     def _save_progress(self):
         torch.save(self.Q, f"project/static/goal-q.pt")
         torch.save(self.G, f"project/static/subgoals.pt")
     
-    def select_action(self, state, goal_id):
+    def select_action(self, state):
         '''Select the best action based on currently explored goals'''
-        if self._random_condition(goal_id):
+        if self._random_condition():
             return random.choice(self.actions)
          # Choose the best action based on current goals
-        goals = torch.IntTensor(list(self.G[goal_id]))
-        sx, sy = tuple(state[i].expand(goals.shape[0]) for i in range(2))
-        qs = self.Q[sx, sy, goals[:, 0], goals[:, 1]]
+        visible_goals, _ = self._remove_goal()
+        goal_tensor = torch.IntTensor(visible_goals)
+        sx, sy = tuple(state[i].expand(goal_tensor.shape[0]) for i in range(2))
+        qs = self.Q[sx, sy, goal_tensor[:, 0], goal_tensor[:, 1]]
         max_av = torch.max(qs, 0).values
         action_values = {}
         for a in self.actions:
