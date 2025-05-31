@@ -185,18 +185,24 @@ class DFA_dijkstra(DFA_Task):
         pass
 
 if __name__ == "__main__":
-    room = load_room("saved_disc", "9room.pt", 4)
+    elk_name = "9room"
+    room = load_room("saved_disc", f"{elk_name}.pt", 8)
     if 'starting' in room.goals:
         starting = room.goals.pop('starting')
     print(room.goals.keys())
     room.start()
+    pretrained = True   # Use the elk's existing knowledge
     goal_learner = GoalOrientedQLearning(room)
-    goal_learner.train_episodes(num_episodes=2000, max_steps_per_episode=250)
-
-    at = AtomicTask("F(goal_2)", room)
+    if not pretrained:
+        goal_learner.train_episodes(num_episodes=800, max_steps_per_episode=70)
+        torch.save(goal_learner.Q, f"project/static/{elk_name}-q.pt")
+    else:
+        q_matrix = torch.load(f"project/static/{elk_name}-q.pt")
+        goal_learner.Q = q_matrix
+    at = AtomicTask("F(goal_4)", room)
     # at = AtomicTask("F goal_2", room)
     print(at)
     policy = at.get_policy(goal_learner)
-    room.draw_policy(policy, fn="9room_goal_2")
+    room.draw_policy(policy, fn=f"{elk_name}_2")
     # print(at.formula)
     # dfa_task = DFA_Task("(G(t1) & t2)", {"t1": AtomicTask("F(goal_2)", room), "t2": AtomicTask("F(!goal_1)", room)})
