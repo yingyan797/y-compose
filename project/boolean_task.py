@@ -20,7 +20,7 @@ class GoalOrientedBase:
         self.r_min = r_min
         self.G = set()
         self.epsilon = 0.5
-        self.decay_rate = 0.99
+        self.decay_rate = 0.995
 
     def _random_condition(self):
         return not self.G or random.random() < self.epsilon
@@ -67,20 +67,23 @@ class GoalOrientedBase:
                 action = self.select_action(state)
                 next_state, reward, done = self.env.step(action)
 
-                if mis_coverage_terrain is not None and done > 0 and not mis_coverage_terrain[next_state[0], next_state[1]]:
-                    self._add_goal(next_state)
-                    done = 0
+                if mis_coverage_terrain is not None and done >= 2 and not mis_coverage_terrain[next_state[0], next_state[1]]:
+                    done = 1
 
-                # Update Q-values for each subgoal
-                if self.G:
-                    self._train(state, action, reward, next_state, done)
                 if done > 0:
                     # Add the current state to the set of subgoals
                     self._add_goal(next_state)
+                # Update Q-values for each subgoal
+                if self.G:
+                    self._train(state, action, reward, next_state, done)
+                
+                if done >= 2: 
                     break
                 
                 state = next_state
                 steps += 1
+                self.epsilon = max(self.epsilon * self.decay_rate, 0.05)
+
             if episode % 100 == 0:
                 print(f"Episode {episode} completed with {len(self.G)} goals steps {steps}/{max_steps_per_episode} why {done}")
                     
@@ -102,27 +105,29 @@ class GoalOrientedQLearning(GoalOrientedBase):
         """Get Q-value for a state-subgoal-action triple."""
         goal_tensor = torch.IntTensor(list(self.G))
         sx, sy = tuple(state[i].expand(goal_tensor.shape[0]) for i in range(2))
-        action = torch.IntTensor([action]).expand(goal_tensor.shape[0])
+        action_tensor = torch.IntTensor([action]).expand(goal_tensor.shape[0])
         nx, ny = tuple(next_state[i].expand(goal_tensor.shape[0]) for i in range(2))
-        current_q = self.Q[sx, sy, goal_tensor[:, 0], goal_tensor[:, 1], action]
+        current_q = self.Q[sx, sy, goal_tensor[:, 0], goal_tensor[:, 1], action_tensor]
 
         if done > 0:
+            goal_eq = -1
             for i in range(goal_tensor.shape[0]):
                 if torch.equal(next_state, goal_tensor[i]):
-                    goal_non_eq = list(range(i))+list(range(i+1, goal_tensor.shape[0]))
+                    goal_eq = i
                     break
-            else:
-                goal_non_eq = list(range(goal_tensor.shape[0]))
+
+            if goal_eq == -1:
+                raise ValueError("Goal not found in subgoals, why training?")
             
-            delta = reward - current_q
-            delta[goal_non_eq] = self.r_min
+            delta = torch.zeros_like(current_q)
+            delta[goal_eq] = reward - current_q[goal_eq]
         else:
             next_q = self.Q[nx, ny, goal_tensor[:, 0], goal_tensor[:, 1]]
             max_next_q = next_q.max(1).values
             delta = reward + self.gamma * max_next_q - current_q
             
         new_q = current_q + self.learning_rate * delta
-        self.Q[sx, sy, goal_tensor[:, 0], goal_tensor[:, 1], action] = new_q
+        self.Q[sx, sy, goal_tensor[:, 0], goal_tensor[:, 1], action_tensor] = new_q
 
     def _save_progress(self):
         torch.save(self.Q, f"project/static/goal-q.pt")
@@ -134,6 +139,8 @@ class GoalOrientedQLearning(GoalOrientedBase):
             return random.choice(self.actions)
          # Choose the best action based on current goals
         visible_goals, _ = self._remove_goal()
+        if not visible_goals:
+            return random.choice(self.actions)
         goal_tensor = torch.IntTensor(visible_goals)
         sx, sy = tuple(state[i].expand(goal_tensor.shape[0]) for i in range(2))
         qs = self.Q[sx, sy, goal_tensor[:, 0], goal_tensor[:, 1]]

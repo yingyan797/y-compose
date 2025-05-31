@@ -100,7 +100,7 @@ class Room:
 
         if label >= 2:
             return new_loc, self._reward_lev, label
-        return new_loc, -0.01, 0     # -0.01 for no goal reached
+        return new_loc, 0, 0     # -0.01 for no goal reached
     
     def draw_policy(self, q_values, mask=None, fn="policy"):
         """
