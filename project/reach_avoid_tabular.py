@@ -2,9 +2,9 @@ import torch, random, os, json
 import numpy as np
 from PIL import Image
 import matplotlib.pyplot as plt
-from matplotlib.patches import Arrow, Rectangle
+from matplotlib.patches import Arrow, Rectangle, Circle
 
-class Room:
+class Room:     # An elk grazing in a field
     def __init__(self, height=30, width=30, n_actions=8):
         self.shape = (height, width)
         self.state_dim = 2
@@ -100,7 +100,7 @@ class Room:
 
         if label >= 2:
             return new_loc, self._reward_lev, label
-        return new_loc, 0, 0     # -0.01 for no goal reached
+        return new_loc, 0, 0     
     
     def draw_policy(self, q_values, mask=None, fn="policy"):
         """
@@ -165,10 +165,14 @@ class Room:
                 if action in directions:
                     dx, dy = directions[action]
                     v = value[y,x]
-                    arrow_color = (v, 0, 1-v)
+                    if v == 0:  # No policy for the elk at this cell, how to reach the goal?
+                        circle_color = (0, 0, 0)
+                        shape = Circle((x, y), 0.3, color=circle_color, alpha=0.2)
+                    else:
+                        arrow_color = (v, 0, 1-v)
+                        shape = Arrow(x, y, dx, -dy, width=0.3, color=arrow_color, alpha=(v+0.2)/1.2)
                     # Create arrow
-                    arrow = Arrow(x, y, dx, -dy, width=0.3, color=arrow_color, alpha=(v+0.2)/1.2)
-                    ax.add_patch(arrow)
+                    ax.add_patch(shape)
         
         # Add a legend for directions
         legend_elements = []
