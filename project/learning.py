@@ -185,7 +185,7 @@ class DFA_dijkstra(DFA_Task):
         pass
 
 if __name__ == "__main__":
-    elk_name = "overlap"
+    elk_name = "9room"
     room = load_room("saved_disc", f"{elk_name}.pt", 4)
     if 'starting' in room.goals:
         starting = room.goals.pop('starting')
@@ -199,10 +199,11 @@ if __name__ == "__main__":
     else:
         q_matrix = torch.load(f"project/static/{elk_name}-q.pt")
         goal_learner.Q = q_matrix
-    at = AtomicTask("F(goal_1)", room)
-    # at = AtomicTask("F goal_2", room)
-    print(at)
-    policy = at.get_policy(goal_learner)
+    # at = AtomicTask("F(goal_1)", room)
+    # # at = AtomicTask("F goal_2", room)
+    # print(at)
+    # policy = at.get_policy(goal_learner)
+    policy = goal_learner.q_compose([1])
     room.draw_policy(policy, fn=f"{elk_name}_2")
     # print(at.formula)
     # dfa_task = DFA_Task("(G(t1) & t2)", {"t1": AtomicTask("F(goal_2)", room), "t2": AtomicTask("F(!goal_1)", room)})
