@@ -19,8 +19,8 @@ class GoalOrientedBase:
         self.gamma = gamma
         self.r_min = r_min
         self.G = set()
-        self.epsilon = 0.5
-        self.decay_rate = 0.995
+        self.epsilon = 0.8
+        self.decay_rate = 0.9
         self.mis_coverage_terrain = None
 
     def _random_condition(self):
@@ -53,50 +53,42 @@ class GoalOrientedBase:
     def train_episodes(self, num_episodes=1000, max_steps_per_episode=100, fn=""):
         """Train the agent using Goal-Oriented Q-Learning."""
         epsilon = self.epsilon
-        done_rate = 0
+        goal_regions = list(self.env.goals.values())
+        for iteration in range(5):
+            for goal_region in goal_regions:
+                done_rate = 0
+                for episode in range(1,num_episodes+1):
+                    # Initialize state
+                    state = self.env.start()
 
-        for episode in range(1,num_episodes+1):
-            # Initialize state
-            state = self.env.start()
-            never_done = True
+                    steps = 0
+                    while steps < max_steps_per_episode:
+                        action = self.select_action(state, goal_region)
+                        next_state, reward, done = self.env.step(action)
 
-            def calculate_mis_coverage():
-                mis_coverage_terrain = []
-                for goal_id, gmask in self.env.goals.items():
-                    if gmask.any() and not gmask[state[0], state[1]]:
-                        mis_coverage_terrain.append(gmask)
-                self.mis_coverage_terrain = torch.stack(mis_coverage_terrain).max(0).values if mis_coverage_terrain else None
+                        if done >= 2 and not goal_region[next_state[0], next_state[1]]:
+                            done = 1
+                            reward = 1
 
-            steps = 0
-            while steps < max_steps_per_episode:
-                action = self.select_action(state)
-                next_state, reward, done = self.env.step(action)
-
-                if self.mis_coverage_terrain is not None and done >= 2 and not self.mis_coverage_terrain[next_state[0], next_state[1]]:
-                    done = 1
-
-                if done > 0:
-                    # Add the current state to the set of subgoals
-                    self._add_goal(next_state)
-                # Update Q-values for each subgoal
-                if self.G:
-                    self._train(state, action, reward, next_state, done)
+                        if done > 0:
+                            # Add the current state to the set of subgoals
+                            self._add_goal(next_state)
+                        # Update Q-values for each subgoal
+                        if self.G:
+                            self._train(state, action, reward, next_state, done)
+                        
+                        if done >= 2: 
+                            done_rate = (done_rate*episode+1) / (episode+1)
+                            break
+                        
+                        state = next_state
+                        steps += 1     
+                    else:
+                        done_rate = (done_rate*episode) / (episode+1)
+                    
+                    self.epsilon = max(self.epsilon * self.decay_rate, 0.05)
                 
-                if done >= 2: 
-                    if never_done:
-                        never_done = False
-                        done_rate = (done_rate*episode + 1) / (episode+1)
-                    calculate_mis_coverage()
-                
-                state = next_state
-                steps += 1
-                self.epsilon = max(self.epsilon * self.decay_rate, 0.05)
-            else:
-                if never_done:
-                    done_rate = done_rate*episode / (episode+1)                
-
-            if episode % 100 == 0:
-                print(f"Episode {episode} completed with {len(self.G)} why {done_rate}")
+                print(f"Iteration {iteration} Goal switch why {done_rate}, epsilon {self.epsilon:.2f} completed with {len(self.G)} goals")
                     
         self.epsilon = epsilon
     
@@ -121,6 +113,7 @@ class GoalOrientedQLearning(GoalOrientedBase):
         current_q = self.Q[sx, sy, goal_tensor[:, 0], goal_tensor[:, 1], action_tensor]
 
         if done > 0:
+            delta = torch.zeros_like(current_q)
             goal_eq = -1
             for i in range(goal_tensor.shape[0]):
                 if torch.equal(next_state, goal_tensor[i]):
@@ -129,8 +122,6 @@ class GoalOrientedQLearning(GoalOrientedBase):
 
             if goal_eq == -1:
                 raise ValueError("Goal not found in subgoals, why training?")
-            
-            delta = torch.zeros_like(current_q)
             delta[goal_eq] = reward - current_q[goal_eq]
         else:
             next_q = self.Q[nx, ny, goal_tensor[:, 0], goal_tensor[:, 1]]
@@ -144,12 +135,12 @@ class GoalOrientedQLearning(GoalOrientedBase):
         torch.save(self.Q, f"project/static/goal-q.pt")
         torch.save(self.G, f"project/static/subgoals.pt")
     
-    def select_action(self, state):
+    def select_action(self, state, goal_region):
         '''Select the best action based on currently explored goals'''
         if self._random_condition():
             return random.choice(self.actions)
          # Choose the best action based on current goals
-        visible_goals, _ = self._remove_goal()
+        visible_goals = list((x,y) for x,y in self.G if goal_region[x,y])
         if not visible_goals:
             return random.choice(self.actions)
         goal_tensor = torch.IntTensor(visible_goals)

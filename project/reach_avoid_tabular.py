@@ -165,7 +165,7 @@ class Room:     # An elk grazing in a field
                 if action in directions:
                     dx, dy = directions[action]
                     v = value[y,x]
-                    if v == 0:  # No policy for the elk at this cell, how to reach the goal?
+                    if v == 0 and q_values[y,x].min() == 0:  # No policy for the elk at this cell, how to reach the goal?
                         circle_color = (0, 0, 0)
                         shape = Circle((x, y), 0.3, color=circle_color, alpha=0.2)
                     else:

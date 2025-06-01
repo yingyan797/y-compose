@@ -185,7 +185,8 @@ class DFA_dijkstra(DFA_Task):
         pass
 
 if __name__ == "__main__":
-    room = load_room("saved_disc", "overlap.pt", 4)
+    elk_name = "overlap"
+    room = load_room("saved_disc", f"{elk_name}.pt", 4)
     if 'starting' in room.goals:
         starting = room.goals.pop('starting')
     print(room.goals.keys())
@@ -193,15 +194,15 @@ if __name__ == "__main__":
     pretrained = True   # Use the elk's existing knowledge
     goal_learner = GoalOrientedQLearning(room)
     if not pretrained:
-        goal_learner.train_episodes(num_episodes=800, max_steps_per_episode=50)
-        torch.save(goal_learner.Q, "project/static/overlap-q.pt")
+        goal_learner.train_episodes(num_episodes=1200, max_steps_per_episode=70)
+        torch.save(goal_learner.Q, f"project/static/{elk_name}-q.pt")
     else:
-        q_matrix = torch.load("project/static/overlap-q.pt")
+        q_matrix = torch.load(f"project/static/{elk_name}-q.pt")
         goal_learner.Q = q_matrix
-    at = AtomicTask("F(goal_1)", room)
+    at = AtomicTask("F(goal_2)", room)
     # at = AtomicTask("F goal_2", room)
     print(at)
     policy = at.get_policy(goal_learner)
-    room.draw_policy(policy, fn="overlap_1")
+    room.draw_policy(policy, fn=f"{elk_name}_2")
     # print(at.formula)
     # dfa_task = DFA_Task("(G(t1) & t2)", {"t1": AtomicTask("F(goal_2)", room), "t2": AtomicTask("F(!goal_1)", room)})
