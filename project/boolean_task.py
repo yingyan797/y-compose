@@ -3,7 +3,7 @@ import random
 from reach_avoid_tabular import torch, Room, create_room, load_room, Image
 
 class GoalOrientedBase:
-    def __init__(self, room:Room, learning_rate=0.1, gamma=0.99, r_min=-1e9):
+    def __init__(self, room:Room, learning_rate=0.08, gamma=0.99, r_min=-1e9):
         """
         Initialize the Goal-Oriented Q-Learning algorithm for a 2D reach-avoid navigation task.
         
@@ -20,7 +20,7 @@ class GoalOrientedBase:
         self.r_min = r_min
         self.G = set()
         self.epsilon = 0.8
-        self.decay_rate = 0.9
+        self.decay_rate = 0.98
         self.mis_coverage_terrain = None
 
     def _random_condition(self):
@@ -50,11 +50,12 @@ class GoalOrientedBase:
     def select_action(self, *args):
         raise NotImplementedError()
 
-    def train_episodes(self, num_episodes=1000, max_steps_per_episode=100, fn=""):
+    def train_episodes(self, num_episodes=150, max_steps_per_episode=100):
         """Train the agent using Goal-Oriented Q-Learning."""
         epsilon = self.epsilon
         goal_regions = list(self.env.goals.values())
         for iteration in range(5):
+            random.shuffle(goal_regions)
             for goal_region in goal_regions:
                 done_rate = 0
                 for episode in range(1,num_episodes+1):
@@ -68,7 +69,7 @@ class GoalOrientedBase:
 
                         if done >= 2 and not goal_region[next_state[0], next_state[1]]:
                             done = 1
-                            reward = 1
+                            reward = 10
 
                         if done > 0:
                             # Add the current state to the set of subgoals
@@ -113,7 +114,7 @@ class GoalOrientedQLearning(GoalOrientedBase):
         current_q = self.Q[sx, sy, goal_tensor[:, 0], goal_tensor[:, 1], action_tensor]
 
         if done > 0:
-            delta = torch.zeros_like(current_q)
+            delta = torch.zeros_like(current_q)-1e-3
             goal_eq = -1
             for i in range(goal_tensor.shape[0]):
                 if torch.equal(next_state, goal_tensor[i]):

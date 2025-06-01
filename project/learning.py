@@ -191,15 +191,15 @@ if __name__ == "__main__":
         starting = room.goals.pop('starting')
     print(room.goals.keys())
     room.start()
-    pretrained = True   # Use the elk's existing knowledge
+    pretrained = False    # Use the elk's existing knowledge
     goal_learner = GoalOrientedQLearning(room)
     if not pretrained:
-        goal_learner.train_episodes(num_episodes=1200, max_steps_per_episode=70)
+        goal_learner.train_episodes(num_episodes=50, max_steps_per_episode=100)
         torch.save(goal_learner.Q, f"project/static/{elk_name}-q.pt")
     else:
         q_matrix = torch.load(f"project/static/{elk_name}-q.pt")
         goal_learner.Q = q_matrix
-    at = AtomicTask("F(goal_2)", room)
+    at = AtomicTask("F(goal_1)", room)
     # at = AtomicTask("F goal_2", room)
     print(at)
     policy = at.get_policy(goal_learner)

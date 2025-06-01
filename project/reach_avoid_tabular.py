@@ -78,10 +78,10 @@ class Room:     # An elk grazing in a field
             row_in = new_loc[0] in range(self.shape[0])
             col_in = new_loc[1] in range(self.shape[1])
             if not (row_in and col_in):
-                return self.loc, -1, 0
+                return self.loc, -10, 0
             label = self.terrain[new_loc[0], new_loc[1]]
             if not label:
-                return self.loc, -1, 0
+                return self.loc, -10, 0
         else:
             # -1, 1
             ang = torch.squeeze(action * torch.pi)
@@ -89,10 +89,10 @@ class Room:     # An elk grazing in a field
             row_in = new_loc[0] >= 0 and new_loc[0] <= self.shape[0]
             col_in = new_loc[1] >= 0 and new_loc[1] <= self.shape[1]
             if not (row_in and col_in):
-                return self.loc, -1, 0
+                return self.loc, -10, 0
             label = self.terrain[int(new_loc[0].item()), int(new_loc[1].item())]
             if not label:
-                return self.loc, -1, 0
+                return self.loc, -10, 0
 
         self.loc = new_loc
         if trace:
