@@ -185,7 +185,7 @@ class DFA_dijkstra(DFA_Task):
         pass
 
 if __name__ == "__main__":
-    elk_name = "overlap"
+    elk_name = "9room"
     room = load_room("saved_disc", f"{elk_name}.pt", 4)
     if 'starting' in room.goals:
         starting = room.goals.pop('starting')

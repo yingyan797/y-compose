@@ -30,9 +30,21 @@ class GoalOrientedBase:
 
     def _save_progress(self):
         pass
-    
-    def _add_goal(self, state):
-        self.G.add(tuple(state.numpy()))
+
+    def _partition_goals(self):
+        groups = []
+        for gr, region in self.goal_regions:
+            i = 0
+            while i < len(groups):
+                if torch.any(region & groups[i][0]):
+                    mask, members = groups.pop(i)
+                    groups.append((mask | region, members + [gr]))
+                    break
+                i += 1
+            else:
+                groups.append((region, [gr]))
+
+        return groups
 
     def select_action(self, *args):
         raise NotImplementedError()
@@ -60,7 +72,7 @@ class GoalOrientedBase:
                         all_reached_gr = []
                         training_finished = False
                         if done >= 2:
-                            for i, mask in self.goal_regions:
+                            for i, mask in goal_regions:
                                 if mask[next_state[0], next_state[1]]:
                                     all_reached_gr.append(i)
                             if not all_reached_gr:
@@ -88,61 +100,54 @@ class GoalOrientedBase:
                     self.epsilon = max(self.epsilon * self.decay_rate, 0.05)
                 print(f"Iteration {iteration} Goal switch why {done_rate}, epsilon {self.epsilon:.2f}")
 
-        self.env._first_restriction = True
-        self.epsilon = epsilon  # reset epsilon
         # This section is for training within goal starting points, reaching different goals or no goals are encouraged.
         print(f"Beginning training within goal starting points")
-        done_rate = 0
-        for episode in range(1,1201):
-            state = self.env.start(restriction=torch.where(self.env.terrain>=2, 1, 0))
-            mis_coverage = []
-            all_start_gr = []
-            for gr, mask in goal_regions:
-                if mask[state[0], state[1]]:
-                    all_start_gr.append(gr)
-                else:
-                    mis_coverage.append(gr)
-            if not all_start_gr:
-                raise ValueError("Not in any goal region, why?")
+        # Create groups of overlapping goal regions
+        goal_groups = self._partition_goals()
+        for gmask, members in goal_groups:
+            self.epsilon = epsilon  # reset epsilon
+            self.env._first_restriction = True
+            for iteration in range(num_iterations):
+                random.shuffle(members)
+                for m in members:
+                    done_rate = 0
+                    for episode in range(1,num_episodes+1):
+                        state = self.env.start(restriction=gmask)
+                        steps = 0
+                        while steps < max_steps_per_episode:
+                            action = self.select_action(state, m)
+                            next_state, reward, done = self.env.step(action)
 
-            steps = 0
-            while steps < max_steps_per_episode/2:
-                action = self.select_action(state, mis_coverage)
-                next_state, reward, done = self.env.step(action)
-                training_finished = True
-                all_reached_gr = []
-                if done >= 2:
-                    all_reached_gr = [gr for gr, mask in goal_regions if mask[next_state[0], next_state[1]]]
-                    if not all_reached_gr:
-                        raise ValueError("Goal not reached, why done >= 2? Should check the code.")
-                    elif not any(gr in mis_coverage for gr in all_reached_gr):
-                        # Reached some goals different from the starting goals, elk is still encouraged, reward unchanged.
-                        if len(all_reached_gr) < len(all_start_gr):
-                            reward = -1
+                            all_reached_gr = []
+                            training_finished = True
+                            if done >= 2:
+                                for i, mask in goal_regions:
+                                    if mask[next_state[0], next_state[1]]:
+                                        all_reached_gr.append(i)
+                                if not all_reached_gr:
+                                    raise ValueError("Goal not reached, why done >= 2? Should check the code.")
+                                elif m not in all_reached_gr:
+                                    reward = 0
+                                    training_finished = False
+                                    all_reached_gr = []
+                            else:
+                                all_reached_gr = list(range(len(self.goal_regions)))
+                                reward = -10
+
+                            self._train(state, action, reward, next_state, all_reached_gr)
+                            if training_finished: 
+                                success = 1 if done >= 2 else 0
+                                done_rate = (done_rate*episode+success) / (episode+1)
+                                break
+
+                            state = next_state
+                            steps += 1     
                         else:
-                            reward = 0
-                            training_finished = False
-                        all_reached_gr = []
-                else:
-                    all_reached_gr = list(range(len(self.goal_regions)))
-                    reward = -10
+                            done_rate = (done_rate*episode) / (episode+1)
+                    
+                        self.epsilon = max(self.epsilon * self.decay_rate, 0.05)
+                    print(f"Interior {iteration} Goal {m} why {done_rate}, epsilon {self.epsilon:.2f}")
 
-                self._train(state, action, reward, next_state, all_reached_gr)
-
-                if training_finished:
-                    done_rate = (done_rate*steps+1) / (steps+1)
-                    break
-
-                state = next_state
-                steps += 1
-                
-            else:
-                done_rate = (done_rate*steps) / (steps+1)
-
-            self.epsilon = max(self.epsilon * self.decay_rate, 0.05)
-            if episode % 200 == 0:
-                print(f"Episode {episode}, why {done_rate} epsilon {self.epsilon:.2f}")
- 
         self.epsilon = epsilon  # reset epsilon eventually, training is done for elk
 
     def q_compose(self, mask):
@@ -396,35 +401,7 @@ class GoalOrientedNAF(GoalOrientedBase):
 if __name__ == "__main__":
     # Initialize the environment and agent
     agent = GoalOrientedQLearning(
-        room=load_room("saved_disc", "9room.pt", 4),
+        room=load_room("saved_disc", "overlap.pt", 4),
         pretrained=False,
     )
-    # agent = GoalOrientedNAF(
-    #     room=load_room('saved_cont', 'road.pt', 0),
-    #     goal_resolution=5
-    # )
-    
-    # Train the agent
-    agent.env.start()
-    rewards = agent.train_episodes(num_episodes=501, max_steps_per_episode=40)
-    mask = agent.env.goals["goal_2"]
-    agent.visualize_policy_with_arrows(mask, "9room_goal_2")
-    # agent.test_policy(mask, [8,1])
-    # # Plot learning curve
-    # plt.figure(figsize=(10, 5))
-    # plt.plot(rewards)
-    # plt.title('Learning Curve')
-    # plt.xlabel('Episode')
-    # plt.ylabel('Total Reward')
-    # plt.grid(True)
-    # plt.savefig('learning_curve.png')
-    # plt.show()
-    
-    # # Visualize the learned policy
-    # agent.visualize_policy()
-    
-    # # Test the policy from different starting points
-    # test_starts = [(0, 0), (15, 0), (29, 0)]
-    # for start in test_starts:
-    #     print(f"\nTesting from start position: {start}")
-    #     agent.test_policy(start)
+    print([group[1] for group in agent._partition_goals()])
