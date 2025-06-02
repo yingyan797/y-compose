@@ -55,7 +55,7 @@ class GoalOrientedBase:
         goal_regions = self.goal_regions
         # This section is for training elk to reach each goal iteratively.
         print(f"Beginning training non-goal starting points")
-        for iteration in range(num_iterations):
+        for iteration in range(num_iterations*1):
             random.shuffle(goal_regions)
             for gr, goal_region in goal_regions:
                 done_rate = 0
@@ -107,7 +107,7 @@ class GoalOrientedBase:
         for gmask, members in goal_groups:
             self.epsilon = epsilon  # reset epsilon
             self.env._first_restriction = True
-            for iteration in range(num_iterations):
+            for iteration in range(num_iterations*2):
                 random.shuffle(members)
                 for m in members:
                     done_rate = 0
@@ -121,18 +121,23 @@ class GoalOrientedBase:
                             all_reached_gr = []
                             training_finished = True
                             if done >= 2:
-                                for i, mask in goal_regions:
-                                    if mask[next_state[0], next_state[1]]:
-                                        all_reached_gr.append(i)
-                                if not all_reached_gr:
-                                    raise ValueError("Goal not reached, why done >= 2? Should check the code.")
-                                elif m not in all_reached_gr:
+                                if len(members) > 1:
+                                    for i, mask in goal_regions:
+                                        if mask[next_state[0], next_state[1]]:
+                                            all_reached_gr.append(i)
+                                    if not all_reached_gr:
+                                        raise ValueError("Goal not reached, why done >= 2? Should check the code.")
+                                if len(members) <= 1 or m not in all_reached_gr:
                                     reward = 0
                                     training_finished = False
                                     all_reached_gr = []
                             else:
                                 all_reached_gr = list(range(len(self.goal_regions)))
-                                reward = -10
+                                if len(members) <= 1:
+                                    all_reached_gr.remove(m)
+                                    reward = 1
+                                else:
+                                    reward = -10
 
                             self._train(state, action, reward, next_state, all_reached_gr)
                             if training_finished: 

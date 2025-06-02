@@ -194,7 +194,7 @@ if __name__ == "__main__":
     pretrained = False    # Use the elk's existing knowledge
     goal_learner = GoalOrientedQLearning(room)
     if not pretrained:
-        goal_learner.train_episodes(num_episodes=50, num_iterations=5, max_steps_per_episode=100)
+        goal_learner.train_episodes(num_episodes=50, num_iterations=5, max_steps_per_episode=70)
         torch.save(goal_learner.Q, f"project/static/{elk_name}-q.pt")
     else:
         q_matrix = torch.load(f"project/static/{elk_name}-q.pt")
