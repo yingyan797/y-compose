@@ -104,9 +104,6 @@ class GoalOrientedBase:
                     mis_coverage.append(gr)
             if not all_start_gr:
                 raise ValueError("Not in any goal region, why?")
-            elif not mis_coverage:
-                # Already reached all goals
-                continue
 
             steps = 0
             while steps < max_steps_per_episode/2:
@@ -187,6 +184,8 @@ class GoalOrientedQLearning(GoalOrientedBase):
         if self._random_condition():
             return random.choice(self.actions)
         if isinstance(gr, list):  # no subgoal, choose the best action for all subgoals
+            if not gr:
+                gr = list(range(len(self.goal_regions)))
             sx, sy = tuple(state[i].expand(len(gr)) for i in range(2))
             q_sg = torch.max(self.Q[sx, sy, gr], dim=0).values
         else:
