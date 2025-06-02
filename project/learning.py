@@ -29,32 +29,19 @@ class AtomicTask:
 
         if isinstance(self.formula, ltlf.LTLfUntil):
             self.condition = self.formula.formulas[0]
-            self.condition_region = self._goal_region(self.condition)
             self.condition_valid = self._valid_region(self.condition)
             self.goal = self.formula.formulas[1]
         elif isinstance(self.formula, ltlf.LTLfEventually):
             self.condition = None
-            self.condition_region = None
             self.condition_valid = torch.ones_like(self.full_goals)
             self.goal = self.formula.f
         else:
             raise TypeError(f"Unsupported formula: {formula}")
         
-        self.goal_region = self._goal_region(self.goal)
         self.goal_valid = self._valid_region(self.goal)
 
     def __repr__(self):
         return str(self.formula)
-    
-    def _goal_region(self, formula:ltlf.LTLfFormula):
-        if isinstance(formula, ltlf.LTLfNot):
-            return atomic_not(self._goal_region(formula.f), self.full_goals)
-        elif isinstance(formula, ltlf.LTLfAnd):
-            return atomic_and([self._goal_region(f) for f in formula.formulas])
-        elif isinstance(formula, ltlf.LTLfOr):
-            return atomic_or([self._goal_region(f) for f in formula.formulas])
-        elif isinstance(formula, ltlf.LTLfAtomic):
-            return self.goals_regions[formula.s]
         
     def _valid_region(self, formula:ltlf.LTLfFormula):
         if isinstance(formula, ltlf.LTLfNot):
@@ -70,14 +57,27 @@ class AtomicTask:
         return self.goal_valid[loc[0], loc[1]] > 0 and self.condition_valid[loc[0], loc[1]].item() > 0
     
     def get_policy(self, qmodel:GoalOrientedBase):
-        # goal_policy = qmodel.q_compose(self.goal_region)
-        valid_goal = self.goal_region & self.condition_valid
-        if not torch.any(valid_goal):
-            raise ValueError("No valid goal region for this task")
-        joint_policy = qmodel.q_compose(valid_goal)
-        condition_policy = qmodel.q_compose(self.condition_region) if self.condition_region is not None else torch.zeros_like(joint_policy)
-        # return condition_policy + torch.where(goal_policy > 0, goal_policy, 0) # nonegative goal policy offsets condition policy
-        return condition_policy + joint_policy
+        avoid_region = torch.logical_not(self.condition_valid)
+        # Create a dilated avoid region by including adjacent cells
+        dilated_avoid = torch.zeros_like(avoid_region)
+        h, w = avoid_region.shape
+        for i in range(h):
+            for j in range(w):
+                if avoid_region[i,j]:
+                    dilated_avoid[i,j] = 1
+                    # Add adjacent cells (up, down, left, right, diagonals)
+                    for di in [-1,0,1]:
+                        for dj in [-1,0,1]:
+                            ni, nj = i+di, j+dj
+                            if 0 <= ni < h and 0 <= nj < w:
+                                dilated_avoid[ni,nj] = 1
+        unsafe_coords = torch.nonzero(dilated_avoid)
+        print(unsafe_coords.shape)
+        safe_policy = qmodel.q_compose(qmodel.Q_joint, [1])
+        policy = qmodel.q_compose(qmodel.Q_subgoal, [1])
+        ux, uy = unsafe_coords[:,0], unsafe_coords[:,1]
+        policy[ux, uy] = safe_policy[ux, uy]
+        return policy
         
 def dfa_and(atomic_qs):
     return torch.min(torch.stack(atomic_qs), dim=0).values
@@ -191,10 +191,10 @@ if __name__ == "__main__":
         starting = room.goals.pop('starting')
     print(room.goals.keys())
     room.start()
-    pretrained = False          # Use the elk's existing knowledge
+    pretrained = True           # Use the elk's existing knowledge
     goal_learner = GoalOrientedQLearning(room)
     if not pretrained:
-        goal_learner.train_episodes(num_episodes=50, num_iterations=10, max_steps_per_episode=70)
+        goal_learner.train_episodes(num_episodes=50, num_iterations=7, max_steps_per_episode=100)
         torch.save(goal_learner.Q_joint, f"project/static/policy/{elk_name}-jq.pt")
         torch.save(goal_learner.Q_subgoal, f"project/static/policy/{elk_name}-sq.pt")
     else:
@@ -206,12 +206,17 @@ if __name__ == "__main__":
     # # at = AtomicTask("F goal_2", room)
     # print(at)
     # policy = at.get_policy(goal_learner)
-    for i in range(len(room.goals)):
-        subgoal_policy = goal_learner.q_compose(goal_learner.Q_subgoal, [i])
-        # policy = policy.max()+policy.min()-policy
-        # This policy negation is not correct, never use it for elk
-        room.draw_policy(subgoal_policy, fn=f"{elk_name}_{i}")
-        joint_policy = goal_learner.q_compose(goal_learner.Q_joint, [i])
-        room.draw_policy(joint_policy, fn=f"{elk_name}_{i}_joint")
+    at = AtomicTask("!(goal_1 & goal_3) U goal_2", room)
+    policy = at.get_policy(goal_learner)
+    room.draw_policy(policy, fn=f"{elk_name}_at")
+    policy = goal_learner.q_compose(goal_learner.Q_joint, [1])
+    room.draw_policy(policy, fn=f"{elk_name}_joint")
+    # for i in range(len(room.goals)):
+    #     subgoal_policy = goal_learner.q_compose(goal_learner.Q_subgoal, [i])
+    #     # policy = policy.max()+policy.min()-policy
+    #     # This policy negation is not correct, never use it for elk
+    #     room.draw_policy(subgoal_policy, fn=f"{elk_name}_{i}")
+    #     joint_policy = goal_learner.q_compose(goal_learner.Q_joint, [i])
+    #     room.draw_policy(joint_policy, fn=f"{elk_name}_{i}_joint")
     # print(at.formula)
     # dfa_task = DFA_Task("(G(t1) & t2)", {"t1": AtomicTask("F(goal_2)", room), "t2": AtomicTask("F(!goal_1)", room)})

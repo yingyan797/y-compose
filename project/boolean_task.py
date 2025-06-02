@@ -64,7 +64,7 @@ class GoalOrientedBase:
             random.shuffle(goal_regions)
             for gr, goal_region in goal_regions:
                 done_rate = 0
-                for episode in range(1,num_episodes*2+1):
+                for episode in range(1,num_episodes*3+1):
                     # This section trains the joint Q-learning
                     state = self.env.start(restriction=_nongoal_starting)
                     steps = 0
@@ -137,7 +137,7 @@ class GoalOrientedBase:
         for gmask, members in goal_groups:
             self.epsilon = epsilon  # reset epsilon
             self.env._first_restriction = True
-            for iteration in range(num_iterations*2):
+            for iteration in range(num_iterations*1):
                 random.shuffle(members)
                 for m in members:
                     done_rate = 0
