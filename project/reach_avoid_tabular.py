@@ -12,6 +12,7 @@ class Room:     # An elk grazing in a field
         self.n_actions = n_actions
         self.base = torch.ones((height, width), dtype=torch.bool)
         self._reward_lev = 100
+        self._first_restriction = True
         self.goals = dict[str, torch.BoolTensor]()
         self.always = None
         self.terrain = None
@@ -42,7 +43,11 @@ class Room:     # An elk grazing in a field
         if start_state is not None:
             loc = to_tensor(start_state)
         elif restriction is not None:
-            region = [(r,c) for r,c in self._avail_locs if restriction[r,c] > 0]
+            # region = [(r,c) for r,c in self._avail_locs if restriction[r,c] > 0]
+            region = restriction.nonzero().numpy().tolist()
+            if self._first_restriction:
+                print(f"The restricted region has {len(region)} cells.")
+                self._first_restriction = False
             loc = to_tensor(random.choice(region))
         else:
             loc = to_tensor(random.choice(self._avail_locs))
