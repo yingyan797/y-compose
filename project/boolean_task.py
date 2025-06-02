@@ -21,11 +21,15 @@ class GoalOrientedBase:
         self.epsilon = 0.8
         self.decay_rate = 0.98
         self.goal_regions = list(enumerate(self.env.goals.values()))
+        self.Q_joint = None
+        self.Q_subgoal = None
 
     def _random_condition(self):
         return random.random() < self.epsilon
     
-    def _train(self, *args):
+    def _train_jointq(self, *args):
+        raise NotImplementedError()
+    def _train_subgoalq(self, *args):
         raise NotImplementedError()
 
     def _save_progress(self):
@@ -53,20 +57,20 @@ class GoalOrientedBase:
         """Train the agent using Goal-Oriented Q-Learning."""
         epsilon = self.epsilon
         goal_regions = self.goal_regions
+        _nongoal_starting = torch.where(self.env.terrain==1, 1, 0)   
         # This section is for training elk to reach each goal iteratively.
         print(f"Beginning training non-goal starting points")
         for iteration in range(num_iterations*1):
             random.shuffle(goal_regions)
             for gr, goal_region in goal_regions:
                 done_rate = 0
-                for episode in range(1,num_episodes+1):
-                    # Initialize state
-                    state = self.env.start(restriction=torch.where(self.env.terrain==1, 1, 0))
-
+                for episode in range(1,num_episodes*2+1):
+                    # This section trains the joint Q-learning
+                    state = self.env.start(restriction=_nongoal_starting)
                     steps = 0
                     # recent_goals = []
                     while steps < max_steps_per_episode:
-                        action = self.select_action(state, gr)
+                        action = self.select_action(self.Q_joint, state, gr)
                         next_state, reward, done = self.env.step(action)
 
                         all_reached_gr = []
@@ -87,7 +91,33 @@ class GoalOrientedBase:
                         #     reward = -1
                         #     recent_goals = []
 
-                        self._train(state, action, reward, next_state, all_reached_gr)
+                        self._train_jointq(state, action, reward, next_state, all_reached_gr)
+                        if training_finished: 
+                            done_rate = (done_rate*episode+1) / (episode+1)
+                            break
+                        
+                        state = next_state
+                        steps += 1     
+                    else:
+                        done_rate = (done_rate*episode) / (episode+1)
+        
+                    # This section trains the subgoal specific Q-learning
+                    state = self.env.start()
+                    steps = 0
+                    while steps < max_steps_per_episode:
+                        action = self.select_action(self.Q_subgoal, state, gr)
+                        next_state, reward, done = self.env.step(action)
+
+                        training_finished = False
+                        if done >= 2:
+                            if goal_region[next_state[0], next_state[1]]:
+                                # Although some goals are reached, none matches gr. Elk reward is reduced.
+                                training_finished = True
+                            else:
+                                done = 0
+                                reward = 0
+
+                        self._train_subgoalq(state, action, reward, next_state, gr)
                         if training_finished: 
                             done_rate = (done_rate*episode+1) / (episode+1)
                             break
@@ -115,7 +145,7 @@ class GoalOrientedBase:
                         state = self.env.start(restriction=gmask)
                         steps = 0
                         while steps < max_steps_per_episode:
-                            action = self.select_action(state, m)
+                            action = self.select_action(self.Q_joint, state, m)
                             next_state, reward, done = self.env.step(action)
 
                             all_reached_gr = []
@@ -139,7 +169,7 @@ class GoalOrientedBase:
                                 else:
                                     reward = -10
 
-                            self._train(state, action, reward, next_state, all_reached_gr)
+                            self._train_jointq(state, action, reward, next_state, all_reached_gr)
                             if training_finished: 
                                 success = 1 if done >= 2 else 0
                                 done_rate = (done_rate*episode+success) / (episode+1)
@@ -159,47 +189,53 @@ class GoalOrientedBase:
         pass
     
 class GoalOrientedQLearning(GoalOrientedBase):
-    def __init__(self, room:Room, pretrained=False):
+    def __init__(self, room:Room, pretrained=None):
         super().__init__(room)
         # Action space: 8 directions (N, NE, E, SE, S, SW, W, NW)
         self.actions = list(range(room.n_actions))        
         # Q-table: state, subgoal, action -> value
         # State is (x, y), subgoal is goal region index
-        self.Q = torch.zeros(room.shape+(len(self.goal_regions), room.n_actions,)) if not pretrained else torch.load(f"project/static/goal-q.pt")
+        self.Q_joint = torch.zeros(room.shape+(len(self.goal_regions), room.n_actions,))
+        self.Q_subgoal = torch.zeros(room.shape+(len(self.goal_regions), room.n_actions,))
     
-    def _train(self, state, action, reward, next_state, done):
+    def _train_jointq(self, state, action, reward, next_state, done):
         """Get Q-value for a state-subgoal-action triple."""
         sx, sy = tuple(state[i].expand(len(self.goal_regions)) for i in range(2))
         action_tensor = torch.IntTensor([action]).expand(len(self.goal_regions))
         nx, ny = tuple(next_state[i].expand(len(self.goal_regions)) for i in range(2))
-        current_q = self.Q[sx, sy, list(range(len(self.goal_regions))), action_tensor]
+        current_q = self.Q_joint[sx, sy, list(range(len(self.goal_regions))), action_tensor]
 
         if done:
             delta = torch.zeros_like(current_q)-1e-3
             delta[done] = reward - current_q[done]
         else:
-            next_q = self.Q[nx, ny, list(range(len(self.goal_regions)))]
+            next_q = self.Q_joint[nx, ny, list(range(len(self.goal_regions)))]
             max_next_q = next_q.max(1).values
             delta = reward + self.gamma * max_next_q - current_q
             
         new_q = current_q + self.learning_rate * delta
-        self.Q[sx, sy, list(range(len(self.goal_regions))), action_tensor] = new_q
+        self.Q_joint[sx, sy, list(range(len(self.goal_regions))), action_tensor] = new_q
 
-    def _save_progress(self):
-        torch.save(self.Q, f"project/static/goal-q.pt")
-        torch.save(self.G, f"project/static/subgoals.pt")
+    def _train_subgoalq(self, state, action, reward, next_state, done):
+        sx, sy = tuple(state[i].expand(len(self.goal_regions)) for i in range(2))
+        action_tensor = torch.IntTensor([action]).expand(len(self.goal_regions))
+        current_q = self.Q_subgoal[sx, sy, list(range(len(self.goal_regions))), action_tensor]
+        delta = torch.zeros_like(current_q)
+        if reward > 0:
+            delta[done] = reward - current_q[done]
+        else:
+            next_q = self.Q_subgoal[next_state[0], next_state[1], done]
+            max_next_q = next_q.max()
+            delta[done] = reward + self.gamma * max_next_q - current_q[done]
+        new_q = current_q + self.learning_rate * delta
+        self.Q_subgoal[sx, sy, list(range(len(self.goal_regions))), action_tensor] = new_q
     
-    def select_action(self, state, gr):
-        '''Select the best action based on currently explored goals'''
+    def select_action(self, q, state, gr):
+        '''Select the best action based on q, q can be joint or subgoal'''
         if self._random_condition():
             return random.choice(self.actions)
-        if isinstance(gr, list):  # no subgoal, choose the best action for all subgoals
-            if not gr:
-                gr = list(range(len(self.goal_regions)))
-            sx, sy = tuple(state[i].expand(len(gr)) for i in range(2))
-            q_sg = torch.max(self.Q[sx, sy, gr], dim=0).values
-        else:
-            q_sg = self.Q[state[0], state[1], gr]
+
+        q_sg = q[state[0], state[1], gr]
         action_values = {}
         for a in self.actions:
             a_val = q_sg[a].item()
@@ -212,9 +248,9 @@ class GoalOrientedQLearning(GoalOrientedBase):
             return best_actions[0]
         return random.choice(best_actions)
             
-    def q_compose(self, grs):
-        q_subgoal = self.Q.permute(0,1,3,2)[:,:,:,grs]
-        # q_subgoal = q_subgoal.max()+q_subgoal.min()-q_subgoal   
+    def q_compose(self, q, grs):
+        # q can be joint or subgoal
+        q_subgoal = q.permute(0,1,3,2)[:,:,:,grs]
         return q_subgoal.max(dim=3).values
     
     def test_policy(self, mask, start_state=None, max_steps=200):

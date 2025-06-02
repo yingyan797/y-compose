@@ -185,25 +185,33 @@ class DFA_dijkstra(DFA_Task):
         pass
 
 if __name__ == "__main__":
-    elk_name = "9room"
+    elk_name = "overlap"
     room = load_room("saved_disc", f"{elk_name}.pt", 4)
     if 'starting' in room.goals:
         starting = room.goals.pop('starting')
     print(room.goals.keys())
     room.start()
-    pretrained = False    # Use the elk's existing knowledge
+    pretrained = False          # Use the elk's existing knowledge
     goal_learner = GoalOrientedQLearning(room)
     if not pretrained:
-        goal_learner.train_episodes(num_episodes=50, num_iterations=5, max_steps_per_episode=70)
-        torch.save(goal_learner.Q, f"project/static/{elk_name}-q.pt")
+        goal_learner.train_episodes(num_episodes=50, num_iterations=10, max_steps_per_episode=70)
+        torch.save(goal_learner.Q_joint, f"project/static/policy/{elk_name}-jq.pt")
+        torch.save(goal_learner.Q_subgoal, f"project/static/policy/{elk_name}-sq.pt")
     else:
-        q_matrix = torch.load(f"project/static/{elk_name}-q.pt")
-        goal_learner.Q = q_matrix
+        q_matrix = torch.load(f"project/static/policy/{elk_name}-jq.pt")
+        goal_learner.Q_joint = q_matrix
+        q_matrix = torch.load(f"project/static/policy/{elk_name}-sq.pt")
+        goal_learner.Q_subgoal = q_matrix
     # at = AtomicTask("F(goal_1)", room)
     # # at = AtomicTask("F goal_2", room)
     # print(at)
     # policy = at.get_policy(goal_learner)
-    policy = goal_learner.q_compose([2])
-    room.draw_policy(policy, fn=f"{elk_name}_2")
+    for i in range(len(room.goals)):
+        subgoal_policy = goal_learner.q_compose(goal_learner.Q_subgoal, [i])
+        # policy = policy.max()+policy.min()-policy
+        # This policy negation is not correct, never use it for elk
+        room.draw_policy(subgoal_policy, fn=f"{elk_name}_{i}")
+        joint_policy = goal_learner.q_compose(goal_learner.Q_joint, [i])
+        room.draw_policy(joint_policy, fn=f"{elk_name}_{i}_joint")
     # print(at.formula)
     # dfa_task = DFA_Task("(G(t1) & t2)", {"t1": AtomicTask("F(goal_2)", room), "t2": AtomicTask("F(!goal_1)", room)})
