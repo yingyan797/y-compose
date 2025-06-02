@@ -41,18 +41,16 @@ class GoalOrientedBase:
         """Train the agent using Goal-Oriented Q-Learning."""
         epsilon = self.epsilon
         goal_regions = self.goal_regions
-        # This section is for training elk to reach each goal iteratively.
+        # Section 1: training elk to reach each goal iteratively.
         print(f"Beginning training non-goal starting points")
         for iteration in range(num_iterations):
             random.shuffle(goal_regions)
             for gr, goal_region in goal_regions:
-                done_rate = 0
+                done_rate = [0,0]   
                 for episode in range(1,num_episodes+1):
-                    # Initialize state
+                    # Part 1: training elk to reach the goal from non-goal starting points.
                     state = self.env.start(restriction=torch.where(self.env.terrain==1, 1, 0))
-
                     steps = 0
-                    # recent_goals = []
                     while steps < max_steps_per_episode:
                         action = self.select_action(state, gr)
                         next_state, reward, done = self.env.step(action)
@@ -68,84 +66,57 @@ class GoalOrientedBase:
                             elif gr not in all_reached_gr:
                                 # Although some goals are reached, none matches gr. Elk reward is reduced.
                                 reward = -10
-                            training_finished = True
-
-                            # recent_goals = all_reached_gr
-                        # elif recent_goals:
-                        #     reward = -1
-                        #     recent_goals = []
+                            else:
+                                training_finished = True
 
                         self._train(state, action, reward, next_state, all_reached_gr)
                         if training_finished: 
-                            done_rate = (done_rate*episode+1) / (episode+1)
+                            done_rate[0] = (done_rate[0]*episode+1) / (episode+1)
                             break
                         
                         state = next_state
                         steps += 1     
                     else:
-                        done_rate = (done_rate*episode) / (episode+1)
+                        done_rate[0] = (done_rate[0]*episode) / (episode+1)
+
+                    # Part 2: training elk to reach the goal from goal starting points.
+                    state = self.env.start(restriction=torch.where(self.env.terrain>=2, 1, 0))
+                    steps = 0
+                    training_finished = True
+                    while steps < max_steps_per_episode/2:
+                        action = self.select_action(state, gr)
+                        next_state, reward, done = self.env.step(action)
+                        if done >= 2:
+                            all_reached_gr = []
+                            for i, mask in self.goal_regions:
+                                if mask[next_state[0], next_state[1]]:
+                                    all_reached_gr.append(i)
+                            if not all_reached_gr:
+                                raise ValueError("Goal not reached, why done >= 2? Should check the code.")
+                            elif gr not in all_reached_gr:
+                                # Although some goals are reached, none matches gr. Elk reward is reduced.
+                                all_reached_gr = []
+                                reward = 0
+                                training_finished = False
+
+                        else:
+                            reward = -10
+                            all_reached_gr = list(range(len(self.goal_regions)))
+
+                        self._train(state, action, reward, next_state, all_reached_gr)
+                        if training_finished:
+                            success = 1 if done >= 2 else 0
+                            done_rate[1] = (done_rate[1]*episode+success) / (episode+1)
+                            break
+                        state = next_state
+                        steps += 1
+                    else:
+                        done_rate[1] = (done_rate[1]*episode) / (episode+1)
                     
                     self.epsilon = max(self.epsilon * self.decay_rate, 0.05)
+
                 print(f"Iteration {iteration} Goal switch why {done_rate}, epsilon {self.epsilon:.2f}")
 
-        self.env._first_restriction = True
-        self.epsilon = epsilon  # reset epsilon
-        # This section is for training within goal starting points, reaching different goals or no goals are encouraged.
-        print(f"Beginning training within goal starting points")
-        done_rate = 0
-        for episode in range(1,1201):
-            state = self.env.start(restriction=torch.where(self.env.terrain>=2, 1, 0))
-            mis_coverage = []
-            all_start_gr = []
-            for gr, mask in goal_regions:
-                if mask[state[0], state[1]]:
-                    all_start_gr.append(gr)
-                else:
-                    mis_coverage.append(gr)
-            if not all_start_gr:
-                raise ValueError("Not in any goal region, why?")
-            elif not mis_coverage:
-                # Already reached all goals
-                continue
-
-            steps = 0
-            while steps < max_steps_per_episode/2:
-                action = self.select_action(state, mis_coverage)
-                next_state, reward, done = self.env.step(action)
-                training_finished = True
-                all_reached_gr = []
-                if done >= 2:
-                    all_reached_gr = [gr for gr, mask in goal_regions if mask[next_state[0], next_state[1]]]
-                    if not all_reached_gr:
-                        raise ValueError("Goal not reached, why done >= 2? Should check the code.")
-                    elif not any(gr in mis_coverage for gr in all_reached_gr):
-                        # Reached some goals different from the starting goals, elk is still encouraged, reward unchanged.
-                        if len(all_reached_gr) < len(all_start_gr):
-                            reward = -1
-                        else:
-                            reward = 0
-                            training_finished = False
-                        all_reached_gr = []
-                else:
-                    all_reached_gr = list(range(len(self.goal_regions)))
-                    reward = -10
-
-                self._train(state, action, reward, next_state, all_reached_gr)
-
-                if training_finished:
-                    done_rate = (done_rate*steps+1) / (steps+1)
-                    break
-
-                state = next_state
-                steps += 1
-                
-            else:
-                done_rate = (done_rate*steps) / (steps+1)
-
-            self.epsilon = max(self.epsilon * self.decay_rate, 0.05)
-            if episode % 200 == 0:
-                print(f"Episode {episode}, why {done_rate} epsilon {self.epsilon:.2f}")
- 
         self.epsilon = epsilon  # reset epsilon eventually, training is done for elk
 
     def q_compose(self, mask):
@@ -186,11 +157,8 @@ class GoalOrientedQLearning(GoalOrientedBase):
         '''Select the best action based on currently explored goals'''
         if self._random_condition():
             return random.choice(self.actions)
-        if isinstance(gr, list):  # no subgoal, choose the best action for all subgoals
-            sx, sy = tuple(state[i].expand(len(gr)) for i in range(2))
-            q_sg = torch.max(self.Q[sx, sy, gr], dim=0).values
-        else:
-            q_sg = self.Q[state[0], state[1], gr]
+
+        q_sg = self.Q[state[0], state[1], gr]
         action_values = {}
         for a in self.actions:
             a_val = q_sg[a].item()
