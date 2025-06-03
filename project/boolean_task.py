@@ -1,6 +1,7 @@
 import numpy as np
 import random
 from reach_avoid_tabular import torch, Room, create_room, load_room, Image
+import matplotlib.pyplot as plt
 
 class GoalOrientedBase:
     def __init__(self, room:Room, learning_rate=0.08, gamma=0.99, r_min=-1e9):
@@ -82,7 +83,8 @@ class GoalOrientedBase:
                 reward = 0
 
             return reward, all_reached_gr, training_finished
-
+        
+        self.partition = groups
         return [g + (training_group, ) for g in groups if len(g[1]) > 1] + [
             (torch.where(self.env.terrain==1, 1, 0), list(range(len(self.goal_regions))), training_nongoal)]
 
@@ -95,11 +97,13 @@ class GoalOrientedBase:
         goal_regions = self.goal_regions
         # This section is for training elk to reach each goal iteratively.
         print(f"Beginning training non-goal starting points")
+        subgoal_episodes = num_episodes*3
+        why_done_subgoal = np.zeros((num_iterations, len(goal_regions), subgoal_episodes), dtype=np.bool_)
         for iteration in range(num_iterations*1):
             random.shuffle(goal_regions)
             for gr, goal_region in goal_regions:
                 done_rate = 0
-                for episode in range(1,num_episodes*3+1):
+                for episode in range(1,subgoal_episodes+1):
                     state = self.env.start()
                     steps = 0
                     while steps < max_steps_per_episode:
@@ -119,7 +123,7 @@ class GoalOrientedBase:
                         if training_finished: 
                             done_rate = (done_rate*episode+1) / (episode+1)
                             break
-                        
+                        why_done_subgoal[iteration, gr, episode] = 1
                         state = next_state
                         steps += 1     
                     else:
@@ -127,12 +131,13 @@ class GoalOrientedBase:
                     
                     self.epsilon = max(self.epsilon * self.decay_rate, 0.05)
                 print(f"Iteration {iteration} Goal switch why {done_rate}, epsilon {self.epsilon:.2f}")
-
+        
         # This section is for training within goal starting points, reaching different goals or no goals are encouraged.
         print(f"Beginning training within goal starting points")
         # Create groups of overlapping goal regions
         goal_groups = self._partition_goals()
-        for gmask, members, training_function in goal_groups:
+        why_done_joint = np.zeros((len(goal_groups), num_iterations, num_episodes))
+        for g, (gmask, members, training_function) in enumerate(goal_groups):
             self.epsilon = epsilon  # reset epsilon
             self.env._first_restriction = True
             for iteration in range(num_iterations*1):
@@ -149,8 +154,9 @@ class GoalOrientedBase:
                             reward, all_reached_gr, training_finished = training_function(gmask, reward, next_state, done, m)
                             self._train_jointq(state, action, reward, next_state, all_reached_gr)
                             if training_finished: 
-                                success = 1 if done >= 2 else 0
+                                success = 1 if reward > 0 else 0
                                 done_rate = (done_rate*episode+success) / (episode+1)
+                                why_done_joint[g, iteration, episode] += success
                                 break
 
                             state = next_state
@@ -160,8 +166,26 @@ class GoalOrientedBase:
                     
                         self.epsilon = max(self.epsilon * self.decay_rate, 0.05)
                     print(f"Interior {iteration} Goal {m} why {done_rate}, epsilon {self.epsilon:.2f}")
+                why_done_joint[g, iteration] /= len(members)
 
         self.epsilon = epsilon  # reset epsilon eventually, training is done for elk
+        return why_done_subgoal, why_done_joint
+
+    def plot_training_results(why_done_subgoal, why_done_joint):
+        plt.figure(figsize=(12, 8))
+        plt.subplot(1, 2, 1)
+        plt.imshow(np.sum(why_done_subgoal, axis=2))
+        plt.colorbar(label='Number of episodes')
+        plt.title('Subgoal Training Success')
+
+        plt.subplot(1, 2, 2)
+        plt.imshow(np.sum(why_done_joint, axis=2))
+        plt.colorbar(label='Number of episodes')
+        plt.title('Joint Training Success')
+
+        plt.tight_layout()
+        plt.savefig('training_results.png')
+        plt.close() 
 
     def q_compose(self, mask):
         pass
@@ -230,28 +254,6 @@ class GoalOrientedQLearning(GoalOrientedBase):
         # q can be joint or subgoal
         q_subgoal = q.permute(0,1,3,2)[:,:,:,grs]
         return q_subgoal.max(dim=3).values
-    
-    def test_policy(self, mask, start_state=None, max_steps=200):
-        """Test the learned policy from a given start state."""
-        self.env.start(start_state, None)
-        total_reward = 0
-        steps = 0
-        policy = self.q_compose(mask).max(2).indices
-        while steps < max_steps:
-            if random.random() < self.epsilon:
-                action = random.choice(self.actions)
-            else:
-                action = policy[self.env.loc[0], self.env.loc[1]]
-            next_state, reward, done = self.env.step(action, True)
-            total_reward += reward
-            steps += 1
-            
-            if mask[self.env.loc[0], self.env.loc[1]] > 0:
-                print(f"Reached goal position {self.env.loc}")
-                break
-        
-        print(f"Test completed: {steps} steps, Total reward: {total_reward:.2f}")
-        self.env.visual()
 
 import torch.optim as optim
 from collections import deque

@@ -26,6 +26,7 @@ class AtomicTask:
         self.formula = formula_parser(formula)    
         self.goal_regions = room.goals
         self.full_goals = torch.where(room.terrain>=2, 1, 0).to(dtype=torch.bool)
+        self.non_goals = torch.logical_not(self.full_goals)
 
         if isinstance(self.formula, ltlf.LTLfUntil):
             self.condition = self.formula.formulas[0]
@@ -54,66 +55,96 @@ class AtomicTask:
             return self.goal_regions[formula.s]
         
     def task_complete(self, loc):
+        '''Evaluates if the atomic task is completed at the given location.'''
         return self.goal_valid[loc[0], loc[1]] > 0 and self.condition_valid[loc[0], loc[1]].item() > 0
     
-    def get_policy(self, qmodel:GoalOrientedBase):
-        # Create a dilated avoid region by including adjacent cells
-        def dilate_region(mask, reflex=False):
-            h, w = mask.shape 
-            coords = torch.nonzero(mask)
-            adj_coords = [(-1,0), (1,0), (0,-1), (0,1)]
-            # diag_coords = [(-1,-1), (-1,1), (1,-1), (1,1)]
-            dilation = torch.zeros_like(mask)
-            for i, j in coords:
-                for di, dj in adj_coords:
-                    ni, nj = i+di, j+dj
-                    if 0 <= ni < h and 0 <= nj < w:
-                        dilation[ni,nj] = 1
-            if reflex:
-                dilation[coords[:,0], coords[:,1]] = 0     # Orignal avoid region is safe
-            return dilation
-
-        avoid_region = torch.logical_not(self.condition_valid)
+    def policy_composition(self, qmodel:GoalOrientedBase):
+        """
+        Calculates the safe and efficient policy for the atomic task.
+        """
+        # This section is for retrieving both subgoal and joint policies for goal region
         goal_region = self.goal_valid
-        # dilated_avoid = dilate_region(avoid_region, True)
-        # unsafe_coords = torch.nonzero(dilated_avoid)
-        policy = qmodel.q_compose(qmodel.Q_subgoal, [2])
-        safe_policy = qmodel.q_compose(qmodel.Q_joint, [2])
+        goal_coords = torch.nonzero(goal_region)
+        intersect_goals = []
+        for gr, (gname, mask) in enumerate(self.goal_regions.items()):
+            if torch.equal(mask, goal_region):
+                intersect_goals = [gr]
+                break
+            if any(mask[goal_coords[:,0], goal_coords[:,1]]):
+                # Atomic task goal has intersection with the goal region
+                intersect_goals.append(gr)
+        policy = qmodel.q_compose(qmodel.Q_subgoal, intersect_goals)    # initialize with subgoal policy for non-goal region
+        safe_policy = qmodel.q_compose(qmodel.Q_joint, intersect_goals)
+        # Check if the goal region is blank
+        intersect_blank = any(self.non_goals[goal_coords[:,0], goal_coords[:,1]])
+        if intersect_blank:
+            # Atomic task goal has intersection with non-goal region
+            interior_policy = qmodel.q_compose(qmodel.Q_subgoal, list(range(len(qmodel.goal_regions))))
+            interior_safe = qmodel.q_compose(qmodel.Q_joint, list(range(len(qmodel.goal_regions))))
+            nongoal_coords = torch.nonzero(self.non_goals)
+            policy[nongoal_coords[:,0], nongoal_coords[:,1]] = interior_policy[nongoal_coords[:,0], nongoal_coords[:,1]]
+            safe_policy[nongoal_coords[:,0], nongoal_coords[:,1]] = interior_safe[nongoal_coords[:,0], nongoal_coords[:,1]]
+        else:
+            for gr, (gname, mask) in enumerate(self.goal_regions.items()):
+                other_gr = [g for g in intersect_goals if g != gr]
+                if not other_gr:
+                    continue
+                goal_coords = torch.nonzero(mask)
+                policy[goal_coords[:,0], goal_coords[:,1]] = qmodel.q_compose(qmodel.Q_subgoal, other_gr)[goal_coords[:,0], goal_coords[:,1]]
+                safe_policy[goal_coords[:,0], goal_coords[:,1]] = qmodel.q_compose(qmodel.Q_joint, other_gr)[goal_coords[:,0], goal_coords[:,1]]
 
-        # Check each unsafe coordinate and action
-        def get_next_state(x, y, action):
-            dx, dy = qmodel.env.action_map[action]
-            next_x, next_y = x+dx, y+dy
-            # Check if next state is in avoid region
-            if (0 <= next_x < avoid_region.shape[0] and 
-                0 <= next_y < avoid_region.shape[1]):
-                return False, (next_x, next_y)
-            else:
-                return True, (x, y)
-
+        # This section is for iterative safe policy replacement
+        avoid_region = torch.logical_not(self.condition_valid)
         terrain_scan = torch.zeros_like(avoid_region)
+        class TraceStep:
+            def __init__(self, r, c, a=-1):
+                self.r = r
+                self.c = c
+                self.action = a
+
+            def best_action(self, policy):
+                self.action = policy[self.r, self.c].argmax().item()
+                return self.action
+            def get_next_state(self):
+                dx, dy = qmodel.env.action_map[self.action]
+                next_x, next_y = self.r+dx, self.c+dy
+                # Check if next state is in avoid region
+                if (0 <= next_x < avoid_region.shape[0] and 
+                    0 <= next_y < avoid_region.shape[1]):
+                    return False, (next_x, next_y)
+                else:
+                    return True, (self.r, self.c)
+                
+            def __repr__(self):
+                return f"Step(({self.r}, {self.c}), a={self.action})"
+
+        composed_policy = policy.clone()
         for row in range(avoid_region.shape[0]):
             for col in range(avoid_region.shape[1]):
                 if not goal_region[row,col] and not avoid_region[row,col] and not terrain_scan[row,col]:
                     r, c = row, col
-                    trace = [(r,c)]
+                    terrain_scan[r,c] = 1
+                    trace = [TraceStep(r, c)]
                     while True:
-                        a = policy[r,c].argmax().item()
-                        out_of_range, (next_r, next_c) = get_next_state(r, c, a)
+                        step = trace[-1]
+                        a = step.best_action(composed_policy)
+                        out_of_range, (next_r, next_c) = step.get_next_state()
                         if goal_region[next_r, next_c] or terrain_scan[next_r, next_c]:
                             break   # Keep original policy
+
                         elif out_of_range or avoid_region[next_r, next_c] or (
-                                policy[next_r, next_c].argmax().item() == qmodel.env.opposite_action(a)):
-                            trace_tensor = torch.IntTensor(trace+[(next_r, next_c)])
-                            policy[trace_tensor[:,0], trace_tensor[:,1]] = safe_policy[trace_tensor[:,0], trace_tensor[:,1]]
+                                composed_policy[next_r, next_c].argmax().item() == qmodel.env.opposite_action(a)):
+                            trace_tensor = torch.IntTensor([[step.r, step.c] for step in trace]+[[next_r, next_c]])
+                            composed_policy[trace_tensor[:,0], trace_tensor[:,1]] = safe_policy[trace_tensor[:,0], trace_tensor[:,1]]
+                            trace = trace[-1:]
                             if out_of_range:
                                 break
                         else:
-                            trace.append((next_r, next_c))
+                            trace.append(TraceStep(next_r, next_c))
                             r, c = next_r, next_c
                             terrain_scan[r,c] = 1      
 
-        return policy
+        return composed_policy, policy, safe_policy
         
 def dfa_and(atomic_qs):
     return torch.min(torch.stack(atomic_qs), dim=0).values
@@ -238,13 +269,15 @@ if __name__ == "__main__":
         goal_learner.Q_joint = q_matrix
         q_matrix = torch.load(f"project/static/policy/{elk_name}-sq.pt")
         goal_learner.Q_subgoal = q_matrix
-    at = AtomicTask("! goal_1 U goal_3", room)
+    at = AtomicTask("!(goal_1 & goal_3) U goal_2", room)
     # at = AtomicTask("F goal_2", room)
     print(at)
-    policy = at.get_policy(goal_learner)
+    composed_policy, policy, safe_policy = at.policy_composition(goal_learner)
     # at = AtomicTask("!(goal_1) U goal_3", room)
     # policy = at.get_policy(goal_learner)
-    room.draw_policy(policy, fn=f"{elk_name}_at")
+    room.draw_policy(composed_policy, fn=f"{elk_name}_at")
+    room.draw_policy(safe_policy, fn=f"{elk_name}_safe")
+    room.draw_policy(policy, fn=f"{elk_name}_policy")
     # policy = goal_learner.q_compose(goal_learner.Q_joint, [0,2])
     # room.draw_policy(policy, fn=f"{elk_name}_joint")
     # for i in range(len(room.goals)):
