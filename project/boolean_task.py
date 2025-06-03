@@ -48,7 +48,43 @@ class GoalOrientedBase:
             else:
                 groups.append((region, [gr]))
 
-        return groups
+        def find_all_reached_gr(mask, next_state):
+            all_reached_gr = []
+            for i, mask in self.goal_regions:
+                if mask[next_state[0], next_state[1]]:
+                    all_reached_gr.append(i)
+            if not all_reached_gr:
+                raise ValueError("Goal not reached, why done >= 2? Function shouldn't be called.")
+            return all_reached_gr   
+
+        def training_group(mask, reward, next_state, done, gr):
+            all_reached_gr = list(range(len(self.goal_regions)))
+            training_finished = True
+            if done >= 2:
+                all_reached_gr = find_all_reached_gr(mask, next_state)
+                if gr not in all_reached_gr:
+                    reward = 0
+                    training_finished = False
+                    all_reached_gr = []
+            else:
+                reward = -10
+            return reward, all_reached_gr, training_finished
+        
+        def training_nongoal(mask, reward, next_state, done, gr):
+            all_reached_gr = []
+            training_finished = False
+            if done >= 2:
+                all_reached_gr = find_all_reached_gr(mask, next_state)
+                if gr not in all_reached_gr:
+                    reward = -10
+                training_finished = True
+            else:
+                reward = 0
+
+            return reward, all_reached_gr, training_finished
+
+        return [g + (training_group, ) for g in groups if len(g[1]) > 1] + [
+            (torch.where(self.env.terrain==1, 1, 0), list(range(len(self.goal_regions))), training_nongoal)]
 
     def select_action(self, *args):
         raise NotImplementedError()
@@ -57,7 +93,6 @@ class GoalOrientedBase:
         """Train the agent using Goal-Oriented Q-Learning."""
         epsilon = self.epsilon
         goal_regions = self.goal_regions
-        _nongoal_starting = torch.where(self.env.terrain==1, 1, 0)   
         # This section is for training elk to reach each goal iteratively.
         print(f"Beginning training non-goal starting points")
         for iteration in range(num_iterations*1):
@@ -65,43 +100,6 @@ class GoalOrientedBase:
             for gr, goal_region in goal_regions:
                 done_rate = 0
                 for episode in range(1,num_episodes*3+1):
-                    # This section trains the joint Q-learning
-                    state = self.env.start(restriction=_nongoal_starting)
-                    steps = 0
-                    # recent_goals = []
-                    while steps < max_steps_per_episode:
-                        action = self.select_action(self.Q_joint, state, gr)
-                        next_state, reward, done = self.env.step(action)
-
-                        all_reached_gr = []
-                        training_finished = False
-                        if done >= 2:
-                            for i, mask in goal_regions:
-                                if mask[next_state[0], next_state[1]]:
-                                    all_reached_gr.append(i)
-                            if not all_reached_gr:
-                                raise ValueError("Goal not reached, why done >= 2? Should check the code.")
-                            elif gr not in all_reached_gr:
-                                # Although some goals are reached, none matches gr. Elk reward is reduced.
-                                reward = -10
-                            training_finished = True
-
-                            # recent_goals = all_reached_gr
-                        # elif recent_goals:
-                        #     reward = -1
-                        #     recent_goals = []
-
-                        self._train_jointq(state, action, reward, next_state, all_reached_gr)
-                        if training_finished: 
-                            done_rate = (done_rate*episode+1) / (episode+1)
-                            break
-                        
-                        state = next_state
-                        steps += 1     
-                    else:
-                        done_rate = (done_rate*episode) / (episode+1)
-        
-                    # This section trains the subgoal specific Q-learning
                     state = self.env.start()
                     steps = 0
                     while steps < max_steps_per_episode:
@@ -134,9 +132,7 @@ class GoalOrientedBase:
         print(f"Beginning training within goal starting points")
         # Create groups of overlapping goal regions
         goal_groups = self._partition_goals()
-        for gmask, members in goal_groups:
-            if len(members) <= 1:
-                continue
+        for gmask, members, training_function in goal_groups:
             self.epsilon = epsilon  # reset epsilon
             self.env._first_restriction = True
             for iteration in range(num_iterations*1):
@@ -150,22 +146,7 @@ class GoalOrientedBase:
                             action = self.select_action(self.Q_joint, state, m)
                             next_state, reward, done = self.env.step(action)
 
-                            all_reached_gr = []
-                            training_finished = True
-                            if done >= 2:
-                                for i, mask in goal_regions:
-                                    if mask[next_state[0], next_state[1]]:
-                                        all_reached_gr.append(i)
-                                if not all_reached_gr:
-                                    raise ValueError("Goal not reached, why done >= 2? Should check the code.")
-                                if m not in all_reached_gr:
-                                    reward = 0
-                                    training_finished = False
-                                    all_reached_gr = []
-                            else:
-                                all_reached_gr = list(range(len(self.goal_regions)))
-                                reward = -10
-
+                            reward, all_reached_gr, training_finished = training_function(gmask, reward, next_state, done, m)
                             self._train_jointq(state, action, reward, next_state, all_reached_gr)
                             if training_finished: 
                                 success = 1 if done >= 2 else 0
