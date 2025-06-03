@@ -92,23 +92,26 @@ class AtomicTask:
                 return True, (x, y)
 
         terrain_scan = torch.zeros_like(avoid_region)
-        deterministic_actions = torch.argmax(policy, dim=2)
         for row in range(avoid_region.shape[0]):
             for col in range(avoid_region.shape[1]):
                 if not goal_region[row,col] and not avoid_region[row,col] and not terrain_scan[row,col]:
                     r, c = row, col
                     trace = [(r,c)]
                     while True:
-                        a = deterministic_actions[r,c].item()
-                        out_of_range, (r, c) = get_next_state(r, c, a)
-                        if goal_region[r, c] or terrain_scan[r, c]:
-                            break
-                        elif out_of_range or avoid_region[r, c]:
-                            trace = torch.IntTensor(trace)
-                            policy[trace[:,0], trace[:,1]] = safe_policy[trace[:,0], trace[:,1]]
-                            break
-                        trace.append((r, c))
-                        terrain_scan[r,c] = 1
+                        a = policy[r,c].argmax().item()
+                        out_of_range, (next_r, next_c) = get_next_state(r, c, a)
+                        if goal_region[next_r, next_c] or terrain_scan[next_r, next_c]:
+                            break   # Keep original policy
+                        elif out_of_range or avoid_region[next_r, next_c] or (
+                                policy[next_r, next_c].argmax().item() == qmodel.env.opposite_action(a)):
+                            trace_tensor = torch.IntTensor(trace+[(next_r, next_c)])
+                            policy[trace_tensor[:,0], trace_tensor[:,1]] = safe_policy[trace_tensor[:,0], trace_tensor[:,1]]
+                            if out_of_range:
+                                break
+                        else:
+                            trace.append((next_r, next_c))
+                            r, c = next_r, next_c
+                            terrain_scan[r,c] = 1      
 
         return policy
         

@@ -29,6 +29,9 @@ class Room:     # An elk grazing in a field
         self.terrain = None
         self.loc = torch.zeros(2, dtype=torch.int)
 
+    def opposite_action(self, action):
+        return (action + 2) % 4 + (4 if action >= 4 else 0)
+
     def visual(self, animate=True):
         canvas = self.terrain.numpy().astype(np.uint8)*80
         magnify = 1+int(1000/canvas.shape[0])
