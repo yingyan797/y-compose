@@ -122,11 +122,7 @@ def formula_to_dfa(ifml, file_name):
     return [False], mona_in
 
 if __name__ == "__main__":
-    print(formula_to_dfa("F(a) T (b U c)", "example")[0][1])
-    # print(MONA_PATH)
-    
-    # with open("project/ltlf_tools/mona.exe", "rb") as f:
-    #     b = f.read()
-    #     farr = np.frombuffer(b, dtype=np.uint8)
-    #     print(farr.max())
- 
+    parser = LTLfParser()
+    formula = parser("!a | !b")
+    # print(formula)
+    print(formula.to_nnf())
