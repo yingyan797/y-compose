@@ -3,8 +3,9 @@ import ltlf_tools.ltlf as ltlf
 from reach_avoid_tabular import Room, load_room
 from boolean_task import GoalOrientedBase, GoalOrientedNAF, GoalOrientedQLearning
 from collections import deque
-
-import torch, sympy
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
+import torch, sympy, random
 import numpy as np
 
 formula_parser = LTLfParser()
@@ -19,9 +20,66 @@ def atomic_not(mask, full_goals):
     neg = torch.logical_not(mask)
     return torch.minimum(neg, full_goals)
 
+def animate_trace(avoid_region, goal_valid, trace_points):
+    """Animate the policy testing trace showing the elk's movement through the environment"""
+    # Create figure and axis
+    fig, ax = plt.subplots(figsize=(8, 8))
+    rows, cols = avoid_region.shape
+    # Set up the plot limits (swap dimensions for x,y)
+    ax.set_xlim(-0.5, cols-0.5)  # x corresponds to columns
+    ax.set_ylim(-0.5, rows-0.5)  # y corresponds to rows
+    ax.invert_yaxis()
+    # Plot the environment - need to swap axes and flip y-axis for proper orientation
+    condition_region = plt.imshow(avoid_region.numpy(),
+                                cmap='Reds', alpha=0.3,
+                                extent=(-0.5, cols-0.5, 
+                                        rows-0.5, -0.5),  # Note: y-extent flipped
+                                origin='upper')  # This ensures proper orientation
+
+    goal_region = plt.imshow(goal_valid.numpy(),
+                            cmap='Greens', alpha=0.3,
+                            extent=(-0.5, cols-0.5, 
+                                    rows-0.5, -0.5),  # Note: y-extent flipped
+                            origin='upper')  # This ensures proper orientation
+
+    # Initialize empty line for the trace
+    line, = ax.plot([], [], 'b-', linewidth=1, alpha=0.5)
+    # Initialize marker for current position
+    point, = ax.plot([], [], 'ro', markersize=10)
+
+    def init():
+        line.set_data([], [])
+        point.set_data([], [])
+        return line, point
+
+    def animate(frame):
+        # Convert (row, col) to (x, y) by swapping and inverting y
+        x_coords = trace_points[:frame+1, 1]  # col -> x
+        y_coords = trace_points[:frame+1, 0]  # row -> y
+        
+        # Plot trace up to current frame
+        line.set_data(x_coords, y_coords)
+        
+        # Plot current position
+        point.set_data([trace_points[frame, 1]], [trace_points[frame, 0]])
+        
+        return line, point
+
+        # Create animation
+    anim = animation.FuncAnimation(fig, animate, init_func=init,
+                                frames=len(trace_points), interval=200,
+                                blit=True, repeat=True)
+    
+    plt.grid(True, alpha=0.3)
+    plt.title(f"Policy Testing Trace Animation")
+    anim.save(f"project/static/training/trace.gif", 
+                writer='pillow')
+    plt.close()
+
 class AtomicTask:
     def __init__(self, formula, room:Room, name="code_input_atomic_task"):
         self.name = name
+        self.room = room
         self.ifml = formula
         self.formula = formula_parser(formula)    
         self.goal_regions = room.goals
@@ -56,7 +114,12 @@ class AtomicTask:
         
     def task_complete(self, loc):
         '''Evaluates if the atomic task is completed at the given location.'''
-        return self.goal_valid[loc[0], loc[1]] > 0 and self.condition_valid[loc[0], loc[1]].item() > 0
+        if self.goal_valid[loc[0], loc[1]] > 0:
+            return 1    # Goal is reached
+        elif not self.condition_valid[loc[0], loc[1]].item():
+            return -1   # Condition is not met
+        else:
+            return 0    # Task is not completed
     
     def policy_composition(self, qmodel:GoalOrientedBase):
         """
@@ -66,7 +129,7 @@ class AtomicTask:
         goal_region = self.goal_valid
         goal_coords = torch.nonzero(goal_region)
         intersect_goals = []
-        for gr, (gname, mask) in enumerate(self.goal_regions.items()):
+        for gr, mask in enumerate(self.goal_regions.values()):
             if torch.equal(mask, goal_region):
                 intersect_goals = [gr]
                 break
@@ -85,7 +148,7 @@ class AtomicTask:
             policy[nongoal_coords[:,0], nongoal_coords[:,1]] = interior_policy[nongoal_coords[:,0], nongoal_coords[:,1]]
             safe_policy[nongoal_coords[:,0], nongoal_coords[:,1]] = interior_safe[nongoal_coords[:,0], nongoal_coords[:,1]]
         else:
-            for gr, (gname, mask) in enumerate(self.goal_regions.items()):
+            for gr, mask in enumerate(self.goal_regions.values()):
                 other_gr = [g for g in intersect_goals if g != gr]
                 if not other_gr:
                     continue
@@ -145,7 +208,43 @@ class AtomicTask:
                             terrain_scan[r,c] = 1      
 
         return composed_policy, policy, safe_policy
-        
+    
+    def test_policy(self, policy_name, start_state=None, epsilon=0.05, visualize=True, pretrained=True):
+        self.room.start(start_state=start_state, restriction=self.condition_valid)
+        qmodel = GoalOrientedQLearning(self.room)
+        if pretrained:
+            qmodel.Q_joint = torch.load(f"project/static/policy/{policy_name}-jq.pt")
+            qmodel.Q_subgoal = torch.load(f"project/static/policy/{policy_name}-sq.pt")
+        else:
+            qmodel.train_episodes(num_episodes=50, num_iterations=5, max_steps_per_episode=100)
+            torch.save(qmodel.Q_joint, f"project/static/policy/{policy_name}-jq.pt")
+            torch.save(qmodel.Q_subgoal, f"project/static/policy/{policy_name}-sq.pt")
+
+        policy = self.policy_composition(qmodel)[0]
+        max_steps = 100
+        steps = 0
+        print(f"Testing with initial location: {self.room.loc}")
+        while steps < max_steps:
+            if epsilon > 0 and random.random() < epsilon:
+                action = random.randint(0, self.room.n_actions-1)
+            else:
+                action = policy[self.room.loc[0], self.room.loc[1]].argmax().item()
+            self.room.step(action, trace=True)
+            steps += 1
+            if self.task_complete(self.room.loc) > 0:
+                print(f"Good, Task completed safely in {steps} steps. Final location: {self.room.loc}")
+                break
+            elif self.task_complete(self.room.loc) < 0:
+                print(f"Safety constraint violated. Final location: {self.room.loc}")
+                break
+        else:
+            print(f"Task not completed in {max_steps} steps. Final location: {self.room.loc}")
+        if visualize:
+            self.room.draw_policy(policy, fn=f"{self.name}.png")
+            # print(torch.stack(self.room._trace).numpy().tolist())
+            animate_trace(self.condition_valid.logical_not(), self.goal_valid, torch.stack(self.room._trace).numpy())
+
+
 def dfa_and(atomic_qs):
     return torch.min(torch.stack(atomic_qs), dim=0).values
 def dfa_or(atomic_qs):
@@ -254,38 +353,9 @@ class DFA_dijkstra(DFA_Task):
 if __name__ == "__main__":
     elk_name = "overlap"
     room = load_room("saved_disc", f"{elk_name}.pt", 4)
+    room.start()
     if 'starting' in room.goals:
         starting = room.goals.pop('starting')
     print(room.goals.keys())
-    room.start()
-    pretrained = True           # Use the elk's existing knowledge
-    goal_learner = GoalOrientedQLearning(room)
-    if not pretrained:
-        goal_learner.train_episodes(num_episodes=50, num_iterations=5, max_steps_per_episode=100)
-        torch.save(goal_learner.Q_joint, f"project/static/policy/{elk_name}-jq.pt")
-        torch.save(goal_learner.Q_subgoal, f"project/static/policy/{elk_name}-sq.pt")
-    else:
-        q_matrix = torch.load(f"project/static/policy/{elk_name}-jq.pt")
-        goal_learner.Q_joint = q_matrix
-        q_matrix = torch.load(f"project/static/policy/{elk_name}-sq.pt")
-        goal_learner.Q_subgoal = q_matrix
-    at = AtomicTask("!(goal_1 & goal_3) U goal_2", room)
-    # at = AtomicTask("F goal_2", room)
-    print(at)
-    composed_policy, policy, safe_policy = at.policy_composition(goal_learner)
-    # at = AtomicTask("!(goal_1) U goal_3", room)
-    # policy = at.get_policy(goal_learner)
-    room.draw_policy(composed_policy, fn=f"{elk_name}_at")
-    room.draw_policy(safe_policy, fn=f"{elk_name}_safe")
-    room.draw_policy(policy, fn=f"{elk_name}_policy")
-    # policy = goal_learner.q_compose(goal_learner.Q_joint, [0,2])
-    # room.draw_policy(policy, fn=f"{elk_name}_joint")
-    # for i in range(len(room.goals)):
-    #     subgoal_policy = goal_learner.q_compose(goal_learner.Q_subgoal, [i])
-    #     # policy = policy.max()+policy.min()-policy
-    #     # This policy negation is not correct, never use it for elk
-    #     room.draw_policy(subgoal_policy, fn=f"{elk_name}_{i}_subgoal")
-    #     joint_policy = goal_learner.q_compose(goal_learner.Q_joint, [i])
-    #     room.draw_policy(joint_policy, fn=f"{elk_name}_{i}_joint")
-    # print(at.formula)
-    # dfa_task = DFA_Task("(G(t1) & t2)", {"t1": AtomicTask("F(goal_2)", room), "t2": AtomicTask("F(!goal_1)", room)})
+    task = AtomicTask("! goal_2 U (goal_1 & goal_3)", room)
+    task.test_policy(elk_name, start_state=(11,11), epsilon=0, visualize=True)

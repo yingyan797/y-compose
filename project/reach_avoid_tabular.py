@@ -31,19 +31,6 @@ class Room:     # An elk grazing in a field
 
     def opposite_action(self, action):
         return (action + 2) % 4 + (4 if action >= 4 else 0)
-
-    def visual(self, animate=True):
-        canvas = self.terrain.numpy().astype(np.uint8)*80
-        magnify = 1+int(1000/canvas.shape[0])
-        imarr = np.repeat(np.repeat(canvas, magnify, axis=1), magnify, axis=0)
-        Image.fromarray(imarr, mode="L").save("project/static/room-terrain.png")            
-        if animate and len(self._trace) > 1:
-            frames = []
-            for loc in self._trace:
-                frame = np.copy(canvas)
-                frame[int(loc[0].item()), int(loc[1].item())] = [0, 200, 200]
-                frames.append(Image.fromarray(frame))
-            frames[0].save("project/static/trace-animate.gif", save_all=True, append_images=frames[1:])
             
     def start(self, start_state=None, restriction=None):
         def to_tensor(loc):
