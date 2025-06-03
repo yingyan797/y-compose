@@ -135,6 +135,8 @@ class GoalOrientedBase:
         # Create groups of overlapping goal regions
         goal_groups = self._partition_goals()
         for gmask, members in goal_groups:
+            if len(members) <= 1:
+                continue
             self.epsilon = epsilon  # reset epsilon
             self.env._first_restriction = True
             for iteration in range(num_iterations*1):
@@ -151,23 +153,18 @@ class GoalOrientedBase:
                             all_reached_gr = []
                             training_finished = True
                             if done >= 2:
-                                if len(members) > 1:
-                                    for i, mask in goal_regions:
-                                        if mask[next_state[0], next_state[1]]:
-                                            all_reached_gr.append(i)
-                                    if not all_reached_gr:
-                                        raise ValueError("Goal not reached, why done >= 2? Should check the code.")
-                                if len(members) <= 1 or m not in all_reached_gr:
+                                for i, mask in goal_regions:
+                                    if mask[next_state[0], next_state[1]]:
+                                        all_reached_gr.append(i)
+                                if not all_reached_gr:
+                                    raise ValueError("Goal not reached, why done >= 2? Should check the code.")
+                                if m not in all_reached_gr:
                                     reward = 0
                                     training_finished = False
                                     all_reached_gr = []
                             else:
                                 all_reached_gr = list(range(len(self.goal_regions)))
-                                if len(members) <= 1:
-                                    all_reached_gr.remove(m)
-                                    reward = 1
-                                else:
-                                    reward = -10
+                                reward = -10
 
                             self._train_jointq(state, action, reward, next_state, all_reached_gr)
                             if training_finished: 

@@ -24,7 +24,7 @@ class AtomicTask:
         self.name = name
         self.ifml = formula
         self.formula = formula_parser(formula)    
-        self.goals_regions = room.goals
+        self.goal_regions = room.goals
         self.full_goals = torch.where(room.terrain>=2, 1, 0).to(dtype=torch.bool)
 
         if isinstance(self.formula, ltlf.LTLfUntil):
@@ -51,7 +51,7 @@ class AtomicTask:
         elif isinstance(formula, ltlf.LTLfOr):
             return atomic_or([self._valid_region(f) for f in formula.formulas])
         elif isinstance(formula, ltlf.LTLfAtomic):
-            return self.goals_regions[formula.s]
+            return self.goal_regions[formula.s]
         
     def task_complete(self, loc):
         return self.goal_valid[loc[0], loc[1]] > 0 and self.condition_valid[loc[0], loc[1]].item() > 0
@@ -59,24 +59,35 @@ class AtomicTask:
     def get_policy(self, qmodel:GoalOrientedBase):
         avoid_region = torch.logical_not(self.condition_valid)
         # Create a dilated avoid region by including adjacent cells
-        dilated_avoid = torch.zeros_like(avoid_region)
-        h, w = avoid_region.shape
-        for i in range(h):
-            for j in range(w):
-                if avoid_region[i,j]:
-                    dilated_avoid[i,j] = 1
-                    # Add adjacent cells (up, down, left, right, diagonals)
-                    for di in [-1,0,1]:
-                        for dj in [-1,0,1]:
-                            ni, nj = i+di, j+dj
-                            if 0 <= ni < h and 0 <= nj < w:
-                                dilated_avoid[ni,nj] = 1
+
+        def dilate_region(mask, reflex=False):
+            h, w = mask.shape 
+            adj_coords = [(-1,0), (1,0), (0,-1), (0,1)]
+            if qmodel.env.n_actions == 8:
+                adj_coords.extend([(-1,-1), (-1,1), (1,-1), (1,1)])
+            dilation = torch.zeros_like(mask)
+            for i, j in torch.nonzero(mask):
+                for di, dj in adj_coords:
+                    ni, nj = i+di, j+dj
+                    if 0 <= ni < h and 0 <= nj < w:
+                        dilation[ni,nj] = 1
+            if reflex:
+                dilation[i,j] = 0     # Orignal avoid region is safe
+            return dilation
+
+        dilated_avoid = dilate_region(avoid_region, True)
         unsafe_coords = torch.nonzero(dilated_avoid)
-        print(unsafe_coords.shape)
-        safe_policy = qmodel.q_compose(qmodel.Q_joint, [1])
-        policy = qmodel.q_compose(qmodel.Q_subgoal, [1])
-        ux, uy = unsafe_coords[:,0], unsafe_coords[:,1]
-        policy[ux, uy] = safe_policy[ux, uy]
+        print(f"The unsafe region for elk has {unsafe_coords.shape[0]} cells.")
+
+        for gname, mask in self.goal_regions.items():
+            if any(mask[unsafe_coords[:,0], unsafe_coords[:,1]]):
+                print(f"The goal {gname} has intersection with the unsafe region.")
+
+        safe_policy = qmodel.q_compose(qmodel.Q_joint, [2])
+        policy = qmodel.q_compose(qmodel.Q_subgoal, [2])
+        # policy = torch.maximum(policy, safe_policy)
+        # ux, uy = unsafe_coords[:,0], unsafe_coords[:,1]
+        # policy[ux, uy] = safe_policy[ux, uy]
         return policy
         
 def dfa_and(atomic_qs):
@@ -206,11 +217,11 @@ if __name__ == "__main__":
     # # at = AtomicTask("F goal_2", room)
     # print(at)
     # policy = at.get_policy(goal_learner)
-    at = AtomicTask("!(goal_1 & goal_3) U goal_2", room)
+    at = AtomicTask("!(goal_1) U goal_3", room)
     policy = at.get_policy(goal_learner)
     room.draw_policy(policy, fn=f"{elk_name}_at")
-    policy = goal_learner.q_compose(goal_learner.Q_joint, [1])
-    room.draw_policy(policy, fn=f"{elk_name}_joint")
+    # policy = goal_learner.q_compose(goal_learner.Q_joint, [0,2])
+    # room.draw_policy(policy, fn=f"{elk_name}_joint")
     # for i in range(len(room.goals)):
     #     subgoal_policy = goal_learner.q_compose(goal_learner.Q_subgoal, [i])
     #     # policy = policy.max()+policy.min()-policy
