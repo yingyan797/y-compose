@@ -10,6 +10,17 @@ class Room:     # An elk grazing in a field
         self.state_dim = 2
         self.action_dim = 1
         self.n_actions = n_actions
+        if n_actions:
+            self.action_map = {
+                0: [-1, 0],
+                1: [0, 1],
+                2: [1, 0],
+                3: [0, -1],
+                4: [-1, 1],
+                5: [1, 1],
+                6: [1, -1],
+                7: [-1, -1]
+            }
         self.base = torch.ones((height, width), dtype=torch.bool)
         self._reward_lev = 100
         self._first_restriction = True
@@ -59,27 +70,8 @@ class Room:     # An elk grazing in a field
     def step(self, action, trace=False):
         new_loc = [0,0]
         label = 0
-        if self.n_actions:
-            match action:   # 0..7
-                case 0:
-                    drn = [-1, 0]
-                case 4: 
-                    drn = [-1, 1]
-                case 1:
-                    drn = [0, 1]
-                case 5:
-                    drn = [1, 1]
-                case 2:
-                    drn = [1, 0]
-                case 6:
-                    drn = [1, -1]
-                case 3:
-                    drn = [0, -1]
-                case 7:
-                    drn = [-1, -1]
-                case _:
-                    raise ValueError("Not recognized action")
-            new_loc = self.loc + torch.IntTensor(drn)
+        if self.n_actions:                
+            new_loc = self.loc + torch.IntTensor(self.action_map[action])
             row_in = new_loc[0] in range(self.shape[0])
             col_in = new_loc[1] in range(self.shape[1])
             if not (row_in and col_in):

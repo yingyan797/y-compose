@@ -57,37 +57,59 @@ class AtomicTask:
         return self.goal_valid[loc[0], loc[1]] > 0 and self.condition_valid[loc[0], loc[1]].item() > 0
     
     def get_policy(self, qmodel:GoalOrientedBase):
-        avoid_region = torch.logical_not(self.condition_valid)
         # Create a dilated avoid region by including adjacent cells
-
         def dilate_region(mask, reflex=False):
             h, w = mask.shape 
+            coords = torch.nonzero(mask)
             adj_coords = [(-1,0), (1,0), (0,-1), (0,1)]
-            if qmodel.env.n_actions == 8:
-                adj_coords.extend([(-1,-1), (-1,1), (1,-1), (1,1)])
+            # diag_coords = [(-1,-1), (-1,1), (1,-1), (1,1)]
             dilation = torch.zeros_like(mask)
-            for i, j in torch.nonzero(mask):
+            for i, j in coords:
                 for di, dj in adj_coords:
                     ni, nj = i+di, j+dj
                     if 0 <= ni < h and 0 <= nj < w:
                         dilation[ni,nj] = 1
             if reflex:
-                dilation[i,j] = 0     # Orignal avoid region is safe
+                dilation[coords[:,0], coords[:,1]] = 0     # Orignal avoid region is safe
             return dilation
 
-        dilated_avoid = dilate_region(avoid_region, True)
-        unsafe_coords = torch.nonzero(dilated_avoid)
-        print(f"The unsafe region for elk has {unsafe_coords.shape[0]} cells.")
-
-        for gname, mask in self.goal_regions.items():
-            if any(mask[unsafe_coords[:,0], unsafe_coords[:,1]]):
-                print(f"The goal {gname} has intersection with the unsafe region.")
-
-        safe_policy = qmodel.q_compose(qmodel.Q_joint, [2])
+        avoid_region = torch.logical_not(self.condition_valid)
+        goal_region = self.goal_valid
+        # dilated_avoid = dilate_region(avoid_region, True)
+        # unsafe_coords = torch.nonzero(dilated_avoid)
         policy = qmodel.q_compose(qmodel.Q_subgoal, [2])
-        # policy = torch.maximum(policy, safe_policy)
-        # ux, uy = unsafe_coords[:,0], unsafe_coords[:,1]
-        # policy[ux, uy] = safe_policy[ux, uy]
+        safe_policy = qmodel.q_compose(qmodel.Q_joint, [2])
+
+        # Check each unsafe coordinate and action
+        def get_next_state(x, y, action):
+            dx, dy = qmodel.env.action_map[action]
+            next_x, next_y = x+dx, y+dy
+            # Check if next state is in avoid region
+            if (0 <= next_x < avoid_region.shape[0] and 
+                0 <= next_y < avoid_region.shape[1]):
+                return False, (next_x, next_y)
+            else:
+                return True, (x, y)
+
+        terrain_scan = torch.zeros_like(avoid_region)
+        deterministic_actions = torch.argmax(policy, dim=2)
+        for row in range(avoid_region.shape[0]):
+            for col in range(avoid_region.shape[1]):
+                if not goal_region[row,col] and not avoid_region[row,col] and not terrain_scan[row,col]:
+                    r, c = row, col
+                    trace = [(r,c)]
+                    while True:
+                        a = deterministic_actions[r,c].item()
+                        out_of_range, (r, c) = get_next_state(r, c, a)
+                        if goal_region[r, c] or terrain_scan[r, c]:
+                            break
+                        elif out_of_range or avoid_region[r, c]:
+                            trace = torch.IntTensor(trace)
+                            policy[trace[:,0], trace[:,1]] = safe_policy[trace[:,0], trace[:,1]]
+                            break
+                        trace.append((r, c))
+                        terrain_scan[r,c] = 1
+
         return policy
         
 def dfa_and(atomic_qs):
@@ -196,13 +218,13 @@ class DFA_dijkstra(DFA_Task):
         pass
 
 if __name__ == "__main__":
-    elk_name = "9room"
+    elk_name = "overlap"
     room = load_room("saved_disc", f"{elk_name}.pt", 4)
     if 'starting' in room.goals:
         starting = room.goals.pop('starting')
     print(room.goals.keys())
     room.start()
-    pretrained = False           # Use the elk's existing knowledge
+    pretrained = True           # Use the elk's existing knowledge
     goal_learner = GoalOrientedQLearning(room)
     if not pretrained:
         goal_learner.train_episodes(num_episodes=50, num_iterations=5, max_steps_per_episode=100)
@@ -213,21 +235,21 @@ if __name__ == "__main__":
         goal_learner.Q_joint = q_matrix
         q_matrix = torch.load(f"project/static/policy/{elk_name}-sq.pt")
         goal_learner.Q_subgoal = q_matrix
-    # at = AtomicTask("F(goal_1)", room)
-    # # at = AtomicTask("F goal_2", room)
-    # print(at)
-    # policy = at.get_policy(goal_learner)
+    at = AtomicTask("! goal_1 U goal_3", room)
+    # at = AtomicTask("F goal_2", room)
+    print(at)
+    policy = at.get_policy(goal_learner)
     # at = AtomicTask("!(goal_1) U goal_3", room)
     # policy = at.get_policy(goal_learner)
-    # room.draw_policy(policy, fn=f"{elk_name}_at")
+    room.draw_policy(policy, fn=f"{elk_name}_at")
     # policy = goal_learner.q_compose(goal_learner.Q_joint, [0,2])
     # room.draw_policy(policy, fn=f"{elk_name}_joint")
-    for i in range(len(room.goals)):
-        subgoal_policy = goal_learner.q_compose(goal_learner.Q_subgoal, [i])
-        # policy = policy.max()+policy.min()-policy
-        # This policy negation is not correct, never use it for elk
-        room.draw_policy(subgoal_policy, fn=f"{elk_name}_{i}_subgoal")
-        joint_policy = goal_learner.q_compose(goal_learner.Q_joint, [i])
-        room.draw_policy(joint_policy, fn=f"{elk_name}_{i}_joint")
+    # for i in range(len(room.goals)):
+    #     subgoal_policy = goal_learner.q_compose(goal_learner.Q_subgoal, [i])
+    #     # policy = policy.max()+policy.min()-policy
+    #     # This policy negation is not correct, never use it for elk
+    #     room.draw_policy(subgoal_policy, fn=f"{elk_name}_{i}_subgoal")
+    #     joint_policy = goal_learner.q_compose(goal_learner.Q_joint, [i])
+    #     room.draw_policy(joint_policy, fn=f"{elk_name}_{i}_joint")
     # print(at.formula)
     # dfa_task = DFA_Task("(G(t1) & t2)", {"t1": AtomicTask("F(goal_2)", room), "t2": AtomicTask("F(!goal_1)", room)})
