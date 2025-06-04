@@ -133,8 +133,10 @@ class DFA_Edge:
 
         self.cost_matrix = cost_matrix
 
-    def contextual_cost(self, prev_edge=None):
-        if prev_edge is not None:
+    def contextual_cost(self, prev_edge=None, start_loc=None):
+        if start_loc is not None:
+            avail_locs = torch.tensor(start_loc.unsqueeze(0))
+        elif prev_edge is not None:
             avail_locs = torch.nonzero(torch.logical_and(prev_edge.goal_valid, self.condition_valid))
             if len(avail_locs) == 0:
                 return np.inf
@@ -177,9 +179,8 @@ class DFA_Task:
             policy.append(p_row)
         return policy 
     
-    def policy_composition(self, start_state=0):
+    def policy_composition(self, start_state=0, start_loc=None):
         """Get the shortest paths from start state to all accepting states with context-aware edge costs"""
-        path = []
         # State representation: (previous_state, current_state)
         dist = {}
         dist[(None, start_state)] = 0
@@ -200,28 +201,27 @@ class DFA_Task:
             if current_state in self.accepting_states:
                 # Reconstruct path
                 curr_key = state_key
+                path = {}
                 while curr_key is not None:
-                    path.append(curr_key[1])  # Add current_state
+                    path[curr_key[1]] = curr_key[0]
                     curr_key = prev.get(curr_key)
-                path.reverse()
                 
                 return {
                     'path': path,
                     'accepting_state': current_state,
                     'distance': current_dist,
-                    'detailed_path': self._reconstruct_detailed_path(prev, state_key)
                 }
             
             # Explore neighbors
+            prev_edge = self.policy[prev_state][current_state] if prev_state is not None else None
             for next_state in range(self.n_states):
                 next_key = (current_state, next_state)
                 if next_key not in visited:
                     edge = self.policy[current_state][next_state]
                     if edge.const_cost is not None:
                         edge.policy_composition(self.atomic_tasks, room)
-                        prev_edge = self.policy[prev_state][current_state] if prev_state is not None else None
                         # Get contextual edge cost
-                        edge_cost = edge.contextual_cost(prev_edge)
+                        edge_cost = edge.contextual_cost(prev_edge, start_loc)
                     else:
                         edge_cost = edge.const_cost
                         
@@ -232,6 +232,9 @@ class DFA_Task:
                         dist[next_key] = new_dist
                         prev[next_key] = state_key
                         heapq.heappush(pq, (new_dist, current_state, next_state))
+
+            if start_loc is not None:
+                start_loc = None    # Starting location is used only once
         
         return {}
         
