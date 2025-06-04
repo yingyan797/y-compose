@@ -5,6 +5,7 @@ from ltlf_tools.ltlf2dfa import MonaProgram, ter2symb, simplify_guard, symbols, 
 
 CDIR = os.getcwd()  # .../y-compose/
 MONA_PATH = f"{CDIR}/project/ltlf_tools/mona.exe"
+formula_parser = LTLfParser()
 
 def parse_dfa(p_formula, dfa_text):
     """
@@ -101,8 +102,8 @@ def parse_dfa(p_formula, dfa_text):
     return result, matrix
 
 def formula_to_dfa(ifml, file_name):
-    parser = LTLfParser()
-    formula = parser(ifml)       # returns an LTLfFormula
+
+    formula = formula_parser(ifml)       # returns an LTLfFormula
     prog = MonaProgram(formula).mona_program()
     ipath = os.path.join(CDIR, "project", "static", "mona_files", f"{file_name}.mona")
     opath = os.path.join(CDIR, "project", "static", "dfa_files", f"{file_name}.dfa")
@@ -122,7 +123,6 @@ def formula_to_dfa(ifml, file_name):
     return [False], mona_in
 
 if __name__ == "__main__":
-    parser = LTLfParser()
-    formula = parser("!a | !b")
+    formula = formula_parser("!a | !b")
     # print(formula)
     print(formula.to_nnf())
