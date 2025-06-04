@@ -191,7 +191,7 @@ class GoalOrientedBase:
         pass
     
 class GoalOrientedQLearning(GoalOrientedBase):
-    def __init__(self, room:Room, pretrained=None):
+    def __init__(self, room:Room):
         super().__init__(room)
         # Action space: 8 directions (N, NE, E, SE, S, SW, W, NW)
         self.actions = list(range(room.n_actions))        
