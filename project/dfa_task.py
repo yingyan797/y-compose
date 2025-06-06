@@ -4,6 +4,7 @@ import heapq
 from collections import deque
 from atomic_task import AtomicTask, TraceStep, Room
 from ltl_util import formula_to_dfa
+from boolean_task import GoalOrientedQLearning
 
 def dfa_and(atomic_qs):
     return torch.min(torch.stack(atomic_qs), dim=0).values
@@ -19,12 +20,12 @@ class DFA_Edge:
         self.goal_valid = None
         self.cost_matrix = None
         self.const_cost = None
-        if (isinstance(formula, str) and formula == "") or isinstance(formula, sympy.false):
+        if (isinstance(formula, str) and formula == "") or formula == sympy.false:
             self.const_cost = np.inf    # Edge has no viable routes
-        elif isinstance(formula, sympy.true):
+        elif formula == sympy.true:
             self.const_cost = 0    # Edge is always viable
 
-    def policy_composition(self, atomic_tasks: dict[str, AtomicTask], room: Room):
+    def policy_composition(self, qmodel: GoalOrientedQLearning, atomic_tasks: dict[str, AtomicTask], room: Room):
         if self.policy is not None:
             return
             
@@ -34,7 +35,7 @@ class DFA_Edge:
                 assert isinstance(inner, sympy.Symbol)
                 task = atomic_tasks[inner.name]
                 if task.negated_policy is None:     # Only calculate the negated policy once
-                    task.policy_composition(self.qmodel, negation=True)
+                    task.policy_composition(qmodel, negation=True)
                 return task.negated_policy
             elif isinstance(formula, sympy.And):
                 return dfa_and([sub_policy(arg) for arg in formula.args])
@@ -43,7 +44,7 @@ class DFA_Edge:
             elif isinstance(formula, sympy.Symbol):
                 task = atomic_tasks[formula.name]
                 if task.policy is None:  # Only calculate the policy once
-                    task.policy_composition(self.qmodel, negation=False)
+                    task.policy_composition(qmodel, negation=False)
                 return task.policy
             
         def condition_valid(formula):
@@ -85,7 +86,7 @@ class DFA_Edge:
 
     def estimate_cost(self, room: Room):
         avail_locs = torch.nonzero(self.condition_valid)
-        cost_matrix = -3 * torch.ones(room.shape, dtype=int)
+        cost_matrix = torch.zeros(room.shape, dtype=torch.int) - 3
         
         for loc in avail_locs:
             if cost_matrix[loc[0], loc[1]] > -3:
@@ -163,11 +164,10 @@ class DFA_Task:
         self.accepting_states = [s-1 for s in dfa[0]['accepting_states']]
         self.rejecting_states = set()
         self.policy = self.policy_matrix()
-        self.shortest_paths = self._distance_to_accepting()
         self.dfa_state = 0
 
     def __repr__(self):
-        return str(self.dfa_matrix) + "\n" + str(self.shortest_paths)
+        return str(self.dfa_matrix)
     
     def policy_matrix(self):
         policy = []
@@ -179,7 +179,7 @@ class DFA_Task:
             policy.append(p_row)
         return policy 
     
-    def policy_composition(self, start_state=0, start_loc=None):
+    def policy_composition(self, room: Room, qmodel: GoalOrientedQLearning, start_state=0, start_loc=None):
         """Get the shortest paths from start state to all accepting states with context-aware edge costs"""
         # State representation: (previous_state, current_state)
         dist = {}
@@ -217,9 +217,9 @@ class DFA_Task:
             for next_state in range(self.n_states):
                 next_key = (current_state, next_state)
                 if next_key not in visited:
-                    edge = self.policy[current_state][next_state]
-                    if edge.const_cost is not None:
-                        edge.policy_composition(self.atomic_tasks, room)
+                    edge: DFA_Edge = self.policy[current_state][next_state]
+                    if edge.const_cost is None:
+                        edge.policy_composition(qmodel, self.atomic_tasks, room)
                         # Get contextual edge cost
                         edge_cost = edge.contextual_cost(prev_edge, start_loc)
                     else:

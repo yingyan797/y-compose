@@ -1,4 +1,4 @@
-from reach_avoid_tabular import Room
+from reach_avoid_tabular import Room, load_room
 from atomic_task import AtomicTask
 from dfa_task import DFA_Task, DFA_Edge
 from boolean_task import GoalOrientedQLearning
@@ -9,19 +9,28 @@ class Y_Compose:
     def __init__(self, room:Room, name:str, dfa_formula:str, atask_formula:dict[str, str], pretrained=True) -> None:
         self.room = room
         self.dfa_formula = dfa_formula
+        room.start()
+        self.starting_region = None
+        if "starting" in room.goals:
+            self.starting_region = room.goals.pop("starting")
+        print(room.goals.keys())
         atomic_tasks = {name: AtomicTask(formula, room, name) for name, formula in atask_formula.items()}
         self.dfa_task = DFA_Task(dfa_formula, atomic_tasks, name=name)
 
-        qmodel = GoalOrientedQLearning(self.room)
+        self.qmodel = GoalOrientedQLearning(self.room)
         if pretrained:
-            qmodel.load(f"project/static/policy/{name}.pt")
+            policy = torch.load(f"project/static/policy/{name}.pt", weights_only=True)
+            self.qmodel.Q_joint = policy["joint"]
+            self.qmodel.Q_subgoal = policy["subgoal"]
         else:
-            qmodel.train_episodes(num_episodes=100, num_iterations=5, max_steps_per_episode=100)
-            qmodel.save(f"project/static/policy/{name}.pt")
+            why_done_subgoal, why_done_joint = self.qmodel.train_episodes(num_episodes=85, num_iterations=4, max_steps_per_episode=85)
+            torch.save({"joint": self.qmodel.Q_joint, "subgoal": self.qmodel.Q_subgoal}, f"project/static/policy/{name}.pt")
+            self.qmodel.plot_training_results(why_done_subgoal, why_done_joint, f"project/static/training/{name}_training")
 
     def dynamic_planning(self, epsilon=0.01, start_loc=None):
+        print(f"Dynamic planning started at {start_loc}")
         dfa_state = 0
-        policy = self.dfa_task.policy_composition(dfa_state, start_loc)
+        policy = self.dfa_task.policy_composition(self.room, self.qmodel, dfa_state, start_loc)
         optimal_path = policy["path"]
 
         while dfa_state not in self.dfa_task.accepting_states:
@@ -50,8 +59,13 @@ class Y_Compose:
                 else:
                     raise ValueError("No valid next state found")
                 
-                optimal_path = self.dfa_task.policy_composition(dfa_state, x)["path"]
+                policy = self.dfa_task.policy_composition(self.room, self.qmodel, dfa_state, x)
+                optimal_path = policy["path"]
             
 
 if __name__ == "__main__":
-    print(torch.load("project/static/policy/overlap.pt")["joint"])
+    room = load_room("saved_disc", "9room.pt")
+    planning = Y_Compose(room, "9room", "t1 T t2", 
+        {"t1": "! goal_1 U (goal_2 | goal_3)", "t2": "F(goal_4)"}, pretrained=True)
+    loc = room.start(restriction=planning.starting_region)
+    planning.dynamic_planning(epsilon=0.01, start_loc=torch.tensor(loc))

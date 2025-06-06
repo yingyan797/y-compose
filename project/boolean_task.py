@@ -55,6 +55,7 @@ class GoalOrientedBase:
                 if mask[next_state[0], next_state[1]]:
                     all_reached_gr.append(i)
             if not all_reached_gr:
+                print(mask, next_state)
                 raise ValueError("Goal not reached, why done >= 2? Function shouldn't be called.")
             return all_reached_gr   
 
@@ -99,7 +100,7 @@ class GoalOrientedBase:
         print(f"Beginning training non-goal starting points")
         subgoal_episodes = num_episodes*3
         why_done_subgoal = np.zeros((num_iterations, len(goal_regions), subgoal_episodes), dtype=np.bool_)
-        for iteration in range(num_iterations*1):
+        for iteration in range(1, num_iterations+1):
             random.shuffle(goal_regions)
             for gr, goal_region in goal_regions:
                 done_rate = 0
@@ -122,8 +123,8 @@ class GoalOrientedBase:
                         self._train_subgoalq(state, action, reward, next_state, gr)
                         if training_finished: 
                             done_rate = (done_rate*episode+1) / (episode+1)
+                            why_done_subgoal[iteration-1, gr, episode-1] = 1
                             break
-                        why_done_subgoal[iteration, gr, episode] = 1
                         state = next_state
                         steps += 1     
                     else:
@@ -136,12 +137,15 @@ class GoalOrientedBase:
         print(f"Beginning training within goal starting points")
         # Create groups of overlapping goal regions
         goal_groups = self._partition_goals()
-        why_done_joint = np.zeros((len(goal_groups), num_iterations, num_episodes))
+        why_done_joint = np.zeros((len(goal_groups), num_iterations*2))
         for g, (gmask, members, training_function) in enumerate(goal_groups):
+            if len(members) == 1:
+                continue
             self.epsilon = epsilon  # reset epsilon
             self.env._first_restriction = True
-            for iteration in range(num_iterations*1):
+            for iteration in range(1, num_iterations*2+1):
                 random.shuffle(members)
+                n_success = 0
                 for m in members:
                     done_rate = 0
                     for episode in range(1,num_episodes+1):
@@ -155,8 +159,8 @@ class GoalOrientedBase:
                             self._train_jointq(state, action, reward, next_state, all_reached_gr)
                             if training_finished: 
                                 success = 1 if reward > 0 else 0
+                                n_success += success
                                 done_rate = (done_rate*episode+success) / (episode+1)
-                                why_done_joint[g, iteration, episode] += success
                                 break
 
                             state = next_state
@@ -166,26 +170,46 @@ class GoalOrientedBase:
                     
                         self.epsilon = max(self.epsilon * self.decay_rate, 0.05)
                     print(f"Interior {iteration} Goal {m} why {done_rate}, epsilon {self.epsilon:.2f}")
-                why_done_joint[g, iteration] /= len(members)
+                why_done_joint[g, iteration-1] = n_success/(len(members)*num_episodes)
 
         self.epsilon = epsilon  # reset epsilon eventually, training is done for elk
         return why_done_subgoal, why_done_joint
 
-    def plot_training_results(why_done_subgoal, why_done_joint):
-        plt.figure(figsize=(12, 8))
-        plt.subplot(1, 2, 1)
-        plt.imshow(np.sum(why_done_subgoal, axis=2))
-        plt.colorbar(label='Number of episodes')
-        plt.title('Subgoal Training Success')
+    def plot_training_results(self, why_done_subgoal, why_done_joint, fn="training"):
+        subgoal_success = np.sum(why_done_subgoal, axis=2)/why_done_subgoal.shape[2]
+        joint_success = why_done_joint
 
-        plt.subplot(1, 2, 2)
-        plt.imshow(np.sum(why_done_joint, axis=2))
-        plt.colorbar(label='Number of episodes')
-        plt.title('Joint Training Success')
+        # Create figure with two subplots stacked vertically
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 10))
 
+        # Plot subgoal training results on top subplot
+        for gr, goal in enumerate(self.env.goals.keys()):
+            ax1.plot(range(1, subgoal_success.shape[0] + 1),
+                    subgoal_success[:, gr],
+                    marker='o',
+                    label=f'{goal}')
+        ax1.set_xlabel('Iteration')
+        ax1.set_ylabel('Success Rate')
+        ax1.set_title('Directed Policy Training Progress')
+        ax1.legend()
+        ax1.grid(True)
+
+        # Plot joint training results on bottom subplot
+        for group in range(joint_success.shape[0]):
+            ax2.plot(range(1, joint_success.shape[1] + 1),
+                    joint_success[group, :],
+                    marker='o',
+                    label=f'Group {group}')
+        ax2.set_xlabel('Iteration')
+        ax2.set_ylabel('Success Rate')
+        ax2.set_title('Safe Policy Training Progress')
+        ax2.legend()
+        ax2.grid(True)
+
+        # Adjust spacing between subplots
         plt.tight_layout()
-        plt.savefig('training_results.png')
-        plt.close() 
+        plt.close()
+        plt.savefig(f"project/static/training/{fn}.png")
 
     def q_compose(self, mask):
         pass

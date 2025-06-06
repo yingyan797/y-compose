@@ -38,7 +38,7 @@ class Room:     # An elk grazing in a field
 
         if self.terrain is None:
             base = self.base.to(torch.uint8)*2
-            masks = [goal.to(torch.uint8)+1 for goal in self.goals.values()]
+            masks = [goal.to(torch.uint8)+1 for name, goal in self.goals.items() if name != "starting"]
             self.terrain = torch.minimum(base, torch.max(torch.stack(masks), dim=0).values) + self.always.to(torch.uint8)
             self._avail_locs = torch.nonzero(self.terrain).numpy().tolist()
         if start_state is not None:
