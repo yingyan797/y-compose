@@ -1,255 +1,71 @@
-from ltl_util import formula_to_dfa, LTLfParser
-import ltlf_tools.ltlf as ltlf
 from reach_avoid_tabular import Room, load_room
-from boolean_task import GoalOrientedBase, GoalOrientedNAF, GoalOrientedQLearning
-from collections import deque
+from atomic_task import AtomicTask
+from dfa_task import DFA_Task, DFA_Edge
+from boolean_task import GoalOrientedQLearning
+import torch, random
 
-import torch, sympy
-import numpy as np
+class Y_Compose:
+    '''Main class for learning and testing complex policies'''
+    def __init__(self, room:Room, name:str, dfa_formula:str, atask_formula:dict[str, str], pretrained=True) -> None:
+        self.room = room
+        self.dfa_formula = dfa_formula
+        room.start()
+        self.starting_region = None
+        if "starting" in room.goals:
+            self.starting_region = room.goals.pop("starting")
+        print(room.goals.keys())
+        atomic_tasks = {name: AtomicTask(formula, room, name) for name, formula in atask_formula.items()}
+        self.dfa_task = DFA_Task(dfa_formula, atomic_tasks, name=name)
 
-formula_parser = LTLfParser()
-
-def atomic_and(masks):
-    masks = torch.stack(masks)
-    return torch.min(masks, dim=0).values
-def atomic_or(masks):
-    masks = torch.stack(masks)
-    return torch.max(masks, dim=0).values
-def atomic_not(mask, full_goals):
-    neg = torch.logical_not(mask)
-    return torch.minimum(neg, full_goals)
-
-class AtomicTask:
-    def __init__(self, formula, room:Room, name="code_input_atomic_task"):
-        self.name = name
-        self.ifml = formula
-        self.formula = formula_parser(formula)    
-        self.goal_regions = room.goals
-        self.full_goals = torch.where(room.terrain>=2, 1, 0).to(dtype=torch.bool)
-
-        if isinstance(self.formula, ltlf.LTLfUntil):
-            self.condition = self.formula.formulas[0]
-            self.condition_valid = self._valid_region(self.condition)
-            self.goal = self.formula.formulas[1]
-        elif isinstance(self.formula, ltlf.LTLfEventually):
-            self.condition = None
-            self.condition_valid = torch.ones_like(self.full_goals)
-            self.goal = self.formula.f
+        self.qmodel = GoalOrientedQLearning(self.room)
+        if pretrained:
+            policy = torch.load(f"project/static/policy/{name}.pt", weights_only=True)
+            self.qmodel.Q_joint = policy["joint"]
+            self.qmodel.Q_subgoal = policy["subgoal"]
         else:
-            raise TypeError(f"Unsupported formula: {formula}")
-        
-        self.goal_valid = self._valid_region(self.goal)
+            why_done_subgoal, why_done_joint = self.qmodel.train_episodes(num_episodes=85, num_iterations=4, max_steps_per_episode=85)
+            torch.save({"joint": self.qmodel.Q_joint, "subgoal": self.qmodel.Q_subgoal}, f"project/static/policy/{name}.pt")
+            self.qmodel.plot_training_results(why_done_subgoal, why_done_joint, f"project/static/training/{name}_training")
 
-    def __repr__(self):
-        return str(self.formula)
-        
-    def _valid_region(self, formula:ltlf.LTLfFormula):
-        if isinstance(formula, ltlf.LTLfNot):
-            return torch.logical_not(self._valid_region(formula.f))
-        elif isinstance(formula, ltlf.LTLfAnd):
-            return atomic_and([self._valid_region(f) for f in formula.formulas])
-        elif isinstance(formula, ltlf.LTLfOr):
-            return atomic_or([self._valid_region(f) for f in formula.formulas])
-        elif isinstance(formula, ltlf.LTLfAtomic):
-            return self.goal_regions[formula.s]
-        
-    def task_complete(self, loc):
-        return self.goal_valid[loc[0], loc[1]] > 0 and self.condition_valid[loc[0], loc[1]].item() > 0
-    
-    def get_policy(self, qmodel:GoalOrientedBase):
-        # Create a dilated avoid region by including adjacent cells
-        def dilate_region(mask, reflex=False):
-            h, w = mask.shape 
-            coords = torch.nonzero(mask)
-            adj_coords = [(-1,0), (1,0), (0,-1), (0,1)]
-            # diag_coords = [(-1,-1), (-1,1), (1,-1), (1,1)]
-            dilation = torch.zeros_like(mask)
-            for i, j in coords:
-                for di, dj in adj_coords:
-                    ni, nj = i+di, j+dj
-                    if 0 <= ni < h and 0 <= nj < w:
-                        dilation[ni,nj] = 1
-            if reflex:
-                dilation[coords[:,0], coords[:,1]] = 0     # Orignal avoid region is safe
-            return dilation
+    def dynamic_planning(self, epsilon=0.01, start_loc=None):
+        print(f"Dynamic planning started at {start_loc}")
+        dfa_state = 0
+        policy = self.dfa_task.policy_composition(self.room, self.qmodel, dfa_state, start_loc)
+        optimal_path = policy["path"]
 
-        avoid_region = torch.logical_not(self.condition_valid)
-        goal_region = self.goal_valid
-        # dilated_avoid = dilate_region(avoid_region, True)
-        # unsafe_coords = torch.nonzero(dilated_avoid)
-        policy = qmodel.q_compose(qmodel.Q_subgoal, [2])
-        safe_policy = qmodel.q_compose(qmodel.Q_joint, [2])
+        while dfa_state not in self.dfa_task.accepting_states:
+            target_state = optimal_path[dfa_state]      # The next dfa state to move to
+            target_edge: DFA_Edge = self.dfa_task.policy[dfa_state][target_state]
+            target_policy = target_edge.policy
+            x = self.room.loc
 
-        # Check each unsafe coordinate and action
-        def get_next_state(x, y, action):
-            dx, dy = qmodel.env.action_map[action]
-            next_x, next_y = x+dx, y+dy
-            # Check if next state is in avoid region
-            if (0 <= next_x < avoid_region.shape[0] and 
-                0 <= next_y < avoid_region.shape[1]):
-                return False, (next_x, next_y)
-            else:
-                return True, (x, y)
-
-        terrain_scan = torch.zeros_like(avoid_region)
-        deterministic_actions = torch.argmax(policy, dim=2)
-        for row in range(avoid_region.shape[0]):
-            for col in range(avoid_region.shape[1]):
-                if not goal_region[row,col] and not avoid_region[row,col] and not terrain_scan[row,col]:
-                    r, c = row, col
-                    trace = [(r,c)]
-                    while True:
-                        a = deterministic_actions[r,c].item()
-                        out_of_range, (r, c) = get_next_state(r, c, a)
-                        if goal_region[r, c] or terrain_scan[r, c]:
-                            break
-                        elif out_of_range or avoid_region[r, c]:
-                            trace = torch.IntTensor(trace)
-                            policy[trace[:,0], trace[:,1]] = safe_policy[trace[:,0], trace[:,1]]
-                            break
-                        trace.append((r, c))
-                        terrain_scan[r,c] = 1
-
-        return policy
-        
-def dfa_and(atomic_qs):
-    return torch.min(torch.stack(atomic_qs), dim=0).values
-def dfa_or(atomic_qs):
-    return torch.max(torch.stack(atomic_qs), dim=0).values
-def dfa_not(atomic_q):
-    low_q = torch.min(atomic_q)
-    high_q = torch.max(atomic_q)
-    return low_q + high_q - atomic_q
-
-class DFA_Task:
-    def __init__(self, formula:str, atomic_tasks:dict[str, AtomicTask], name="code_input_task"):
-        self.name = name
-        self.formula = formula
-        self.atomic_tasks = atomic_tasks
-        dfa, mona = formula_to_dfa(formula, name)
-        self.dfa_matrix = dfa[1]
-        self.n_states = len(self.dfa_matrix)
-        self.accepting_states = [s-1 for s in dfa[0]['accepting_states']]
-        self.rejecting_states = set()
-        self.policy = self._dfa_policy()
-        self.shortest_paths = self._distance_to_accepting()
-        self.dfa_state = 0
-
-    def __repr__(self):
-        return str(self.dfa_matrix)+"\n"+str(self.shortest_paths)
-    
-    def _dfa_policy(self):
-        def edge_policy(formula):
-            if formula == sympy.true:
-                return 1
-            elif isinstance(formula, sympy.Not):
-                return dfa_not(edge_policy(formula.args[0]))
-            elif isinstance(formula, sympy.And):
-                return dfa_and([edge_policy(arg) for arg in formula.args])
-            elif isinstance(formula, sympy.Or):
-                return dfa_or([edge_policy(arg) for arg in formula.args])
-            elif isinstance(formula, sympy.Symbol):
-                return self.atomic_tasks[formula.name].get_policy("")
-            else:
-                raise TypeError(f"Unsupported edge formula: {formula}")
-        
-        policy = []
-        for i, row in enumerate(self.dfa_matrix):
-            p_row = []
-            for formula in row:
-                if formula == "":
-                    p_row.append(0)
+            if target_edge.complete(x) == 0:   # Task is not completed
+                if random.random() < epsilon:
+                    action = random.choice(list(range(self.room.n_actions)))
                 else:
-                    p_row.append(edge_policy(formula))
-            policy.append(p_row)
-        return policy
-    
-    def _distance_to_accepting(self):
-        """
-        Find shortest path length from each state to any accepting state using BFS.
-        
-        Returns:
-            Dictionary mapping state_id -> shortest_distance (None if unreachable)
-        """
-
-        distances = {}
-        for start_state in range(self.n_states):
-            if start_state in self.accepting_states:
-                distances[start_state] = 0
+                    action = target_policy[x[0], x[1]].argmax()
+                x, _, _ =self.room.step(action)
                 continue
-            
-            # BFS from start_state
-            queue = deque([(start_state, 0)])
-            visited = {start_state}
-            found = False
-            
-            while queue and not found:
-                current_state, dist = queue.popleft()
-                
-                # Check all neighbors
-                for next_state in range(self.n_states):
-                    if current_state == next_state:
+            elif target_edge.complete(x) == 1:   # Task is completed
+                dfa_state = target_state
+            else:   # No longer following the optimal path, need to re-plan
+                for next_state in range(self.dfa_task.n_states):
+                    if next_state in [dfa_state, target_state]:
                         continue
-                    if self.dfa_matrix[current_state][next_state] != "":  # Edge exists
-                        if next_state in self.accepting_states:
-                            distances[start_state] = dist + 1
-                            found = True
-                            break
-                        
-                        if next_state not in visited:
-                            visited.add(next_state)
-                            queue.append((next_state, dist + 1))
+                    next_edge: DFA_Edge = self.dfa_task.policy[dfa_state][next_state]
+                    if next_edge.complete(x) == 1:
+                        dfa_state = next_state
+                        break
+                else:
+                    raise ValueError("No valid next state found")
+                
+                policy = self.dfa_task.policy_composition(self.room, self.qmodel, dfa_state, x)
+                optimal_path = policy["path"]
             
-            if not found:
-                self.rejecting_states.add(start_state)
-                distances[start_state] = None
-        
-        return distances
-    
-    def get_composed_policy(self):
-        pass
-
-class DFA_dijkstra(DFA_Task):
-    def __init__(self, dfa):
-        super().__init__(dfa)
-        self.adjacency_matrix = np.zeros((self.n_states, self.n_states))
-
-    def get_composed_policy(self):
-        pass
 
 if __name__ == "__main__":
-    elk_name = "overlap"
-    room = load_room("saved_disc", f"{elk_name}.pt", 4)
-    if 'starting' in room.goals:
-        starting = room.goals.pop('starting')
-    print(room.goals.keys())
-    room.start()
-    pretrained = True           # Use the elk's existing knowledge
-    goal_learner = GoalOrientedQLearning(room)
-    if not pretrained:
-        goal_learner.train_episodes(num_episodes=50, num_iterations=5, max_steps_per_episode=100)
-        torch.save(goal_learner.Q_joint, f"project/static/policy/{elk_name}-jq.pt")
-        torch.save(goal_learner.Q_subgoal, f"project/static/policy/{elk_name}-sq.pt")
-    else:
-        q_matrix = torch.load(f"project/static/policy/{elk_name}-jq.pt")
-        goal_learner.Q_joint = q_matrix
-        q_matrix = torch.load(f"project/static/policy/{elk_name}-sq.pt")
-        goal_learner.Q_subgoal = q_matrix
-    at = AtomicTask("! goal_1 U goal_3", room)
-    # at = AtomicTask("F goal_2", room)
-    print(at)
-    policy = at.get_policy(goal_learner)
-    # at = AtomicTask("!(goal_1) U goal_3", room)
-    # policy = at.get_policy(goal_learner)
-    room.draw_policy(policy, fn=f"{elk_name}_at")
-    # policy = goal_learner.q_compose(goal_learner.Q_joint, [0,2])
-    # room.draw_policy(policy, fn=f"{elk_name}_joint")
-    # for i in range(len(room.goals)):
-    #     subgoal_policy = goal_learner.q_compose(goal_learner.Q_subgoal, [i])
-    #     # policy = policy.max()+policy.min()-policy
-    #     # This policy negation is not correct, never use it for elk
-    #     room.draw_policy(subgoal_policy, fn=f"{elk_name}_{i}_subgoal")
-    #     joint_policy = goal_learner.q_compose(goal_learner.Q_joint, [i])
-    #     room.draw_policy(joint_policy, fn=f"{elk_name}_{i}_joint")
-    # print(at.formula)
-    # dfa_task = DFA_Task("(G(t1) & t2)", {"t1": AtomicTask("F(goal_2)", room), "t2": AtomicTask("F(!goal_1)", room)})
+    room = load_room("saved_disc", "9room.pt")
+    planning = Y_Compose(room, "9room", "t1 T t2", 
+        {"t1": "! goal_1 U (goal_2 | goal_3)", "t2": "F(goal_4)"}, pretrained=True)
+    loc = room.start(restriction=planning.starting_region)
+    planning.dynamic_planning(epsilon=0.01, start_loc=torch.tensor(loc))

@@ -1,8 +1,8 @@
 
 DFA for formula with free variables: A B 
 Initial state: 0
-Accepting states: 3 
-Rejecting states: 0 1 2 
+Accepting states: 1 2 
+Rejecting states: 0 3 
 
 Automaton has 4 states and 5 BDD-nodes
 Transitions:
@@ -12,16 +12,16 @@ State 1: 10 -> state 1
 State 1: 11 -> state 3
 State 2: XX -> state 2
 State 3: XX -> state 3
-A counter-example of least length (0) is:
-A               X 
-B               X 
-
-A = {}
-B = {}
-
-A satisfying example of least length (1) is:
+A counter-example of least length (1) is:
 A               X 1
 B               X 1
 
 A = {0}
 B = {0}
+
+A satisfying example of least length (0) is:
+A               X 
+B               X 
+
+A = {}
+B = {}

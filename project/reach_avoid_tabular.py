@@ -29,18 +29,8 @@ class Room:     # An elk grazing in a field
         self.terrain = None
         self.loc = torch.zeros(2, dtype=torch.int)
 
-    def visual(self, animate=True):
-        canvas = self.terrain.numpy().astype(np.uint8)*80
-        magnify = 1+int(1000/canvas.shape[0])
-        imarr = np.repeat(np.repeat(canvas, magnify, axis=1), magnify, axis=0)
-        Image.fromarray(imarr, mode="L").save("project/static/room-terrain.png")            
-        if animate and len(self._trace) > 1:
-            frames = []
-            for loc in self._trace:
-                frame = np.copy(canvas)
-                frame[int(loc[0].item()), int(loc[1].item())] = [0, 200, 200]
-                frames.append(Image.fromarray(frame))
-            frames[0].save("project/static/trace-animate.gif", save_all=True, append_images=frames[1:])
+    def opposite_action(self, action):
+        return (action + 2) % 4 + (4 if action >= 4 else 0)
             
     def start(self, start_state=None, restriction=None):
         def to_tensor(loc):
@@ -48,7 +38,7 @@ class Room:     # An elk grazing in a field
 
         if self.terrain is None:
             base = self.base.to(torch.uint8)*2
-            masks = [goal.to(torch.uint8)+1 for goal in self.goals.values()]
+            masks = [goal.to(torch.uint8)+1 for name, goal in self.goals.items() if name != "starting"]
             self.terrain = torch.minimum(base, torch.max(torch.stack(masks), dim=0).values) + self.always.to(torch.uint8)
             self._avail_locs = torch.nonzero(self.terrain).numpy().tolist()
         if start_state is not None:
