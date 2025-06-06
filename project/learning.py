@@ -1,5 +1,5 @@
 from reach_avoid_tabular import Room, load_room
-from atomic_task import AtomicTask
+from atomic_task import AtomicTask, animate_trace
 from dfa_task import DFA_Task, DFA_Edge
 from boolean_task import GoalOrientedQLearning
 import torch, random
@@ -32,7 +32,8 @@ class Y_Compose:
         dfa_state = 0
         policy = self.dfa_task.policy_composition(self.room, self.qmodel, dfa_state, start_loc)
         optimal_path = policy["path"]
-
+        
+        print(f"Optimal path is available: {optimal_path}")
         while dfa_state not in self.dfa_task.accepting_states:
             target_state = optimal_path[dfa_state]      # The next dfa state to move to
             target_edge: DFA_Edge = self.dfa_task.policy[dfa_state][target_state]
@@ -43,8 +44,8 @@ class Y_Compose:
                 if random.random() < epsilon:
                     action = random.choice(list(range(self.room.n_actions)))
                 else:
-                    action = target_policy[x[0], x[1]].argmax()
-                x, _, _ =self.room.step(action)
+                    action = target_policy[x[0], x[1]].argmax().item()
+                x, _, _ = self.room.step(action, trace=True)
                 continue
             elif target_edge.complete(x) == 1:   # Task is completed
                 dfa_state = target_state
@@ -61,11 +62,15 @@ class Y_Compose:
                 
                 policy = self.dfa_task.policy_composition(self.room, self.qmodel, dfa_state, x)
                 optimal_path = policy["path"]
+        
+        animate_trace(torch.zeros_like(self.room.terrain), self.room.terrain, self.room.get_trace())
+
             
 
 if __name__ == "__main__":
     room = load_room("saved_disc", "9room.pt")
     planning = Y_Compose(room, "9room", "t1 T t2", 
         {"t1": "! goal_1 U (goal_2 | goal_3)", "t2": "F(goal_4)"}, pretrained=True)
+    print(planning.dfa_task)
     loc = room.start(restriction=planning.starting_region)
-    planning.dynamic_planning(epsilon=0.01, start_loc=torch.tensor(loc))
+    planning.dynamic_planning(epsilon=0.01, start_loc=loc)

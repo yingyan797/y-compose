@@ -155,7 +155,7 @@ class AtomicTask:
             avoid_region = torch.logical_not(self.condition_valid)
         else:
             print(f"Negation is called for the atomic task {self.formula}")
-            goal_region = torch.logical_not(self.condition_valid)
+            goal_region = torch.logical_not(self.condition_valid) if self.condition is not None else torch.logical_not(self.goal_valid)
             avoid_region = self.goal_valid
 
         goal_coords = torch.nonzero(goal_region)
@@ -243,7 +243,7 @@ class AtomicTask:
         if visualize:
             self.room.draw_policy(policy, fn=self.name)
             # print(torch.stack(self.room._trace).numpy().tolist())
-            animate_trace(self.condition_valid.logical_not(), self.goal_valid, torch.stack(self.room._trace).numpy())
+            animate_trace(self.condition_valid.logical_not(), self.goal_valid, self.room.get_trace())
 
 if __name__ == "__main__":
     elk_name = "9room"

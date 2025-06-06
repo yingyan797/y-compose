@@ -136,7 +136,7 @@ class DFA_Edge:
 
     def contextual_cost(self, prev_edge=None, start_loc=None):
         if start_loc is not None:
-            avail_locs = torch.tensor(start_loc.unsqueeze(0))
+            avail_locs = start_loc.unsqueeze(0)
         elif prev_edge is not None:
             avail_locs = torch.nonzero(torch.logical_and(prev_edge.goal_valid, self.condition_valid))
             if len(avail_locs) == 0:
@@ -167,7 +167,12 @@ class DFA_Task:
         self.dfa_state = 0
 
     def __repr__(self):
-        return str(self.dfa_matrix)
+        dfa_map = {}
+        for i, row in enumerate(self.dfa_matrix):
+            for j, formula in enumerate(row):
+                if formula:
+                    dfa_map[(i, j)] = formula
+        return str(dfa_map)
     
     def policy_matrix(self):
         policy = []
@@ -202,8 +207,8 @@ class DFA_Task:
                 # Reconstruct path
                 curr_key = state_key
                 path = {}
-                while curr_key is not None:
-                    path[curr_key[1]] = curr_key[0]
+                while curr_key is not None and curr_key[0] is not None:
+                    path[curr_key[0]] = curr_key[1]
                     curr_key = prev.get(curr_key)
                 
                 return {
@@ -215,6 +220,8 @@ class DFA_Task:
             # Explore neighbors
             prev_edge = self.policy[prev_state][current_state] if prev_state is not None else None
             for next_state in range(self.n_states):
+                if next_state == current_state:
+                    continue
                 next_key = (current_state, next_state)
                 if next_key not in visited:
                     edge: DFA_Edge = self.policy[current_state][next_state]

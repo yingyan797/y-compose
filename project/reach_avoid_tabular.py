@@ -54,7 +54,7 @@ class Room:     # An elk grazing in a field
             loc = to_tensor(random.choice(self._avail_locs))
 
         self.loc = loc
-        self._trace = [self.loc]
+        self._trace = [self.loc.numpy().tolist()]
         return self.loc
 
     def step(self, action, trace=False):
@@ -83,7 +83,7 @@ class Room:     # An elk grazing in a field
 
         self.loc = new_loc
         if trace:
-            self._trace.append(new_loc)
+            self._trace.append(new_loc.numpy().tolist())
 
         if label >= 2:
             return new_loc, self._reward_lev, label
@@ -174,6 +174,9 @@ class Room:     # An elk grazing in a field
         
         plt.tight_layout()
         plt.savefig(f"project/static/policy/{fn}.png")
+
+    def get_trace(self):
+        return np.array(self._trace)
 
 def create_room(name):
     match name:
