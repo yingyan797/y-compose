@@ -1,6 +1,7 @@
 import torch, sympy
 import numpy as np
 import heapq
+from dataclasses import dataclass
 from collections import deque
 from atomic_task import AtomicTask, TraceStep, Room
 from ltl_util import formula_to_dfa
@@ -13,8 +14,8 @@ def dfa_or(atomic_qs):
     return torch.max(torch.stack(atomic_qs), dim=0).values
 
 class DFA_Edge:
-    def __init__(self, formula):
-        self.formula = formula
+    def __init__(self, formula=None):
+        self.formula = formula      # Single sympy formula, not choices
         self.policy = None
         self.condition_valid = None
         self.goal_valid = None
@@ -25,9 +26,12 @@ class DFA_Edge:
         elif formula == sympy.true:
             self.const_cost = 0    # Edge is always viable
 
+    def key(self):
+        return (self.vertices, self.locs)
+
     def policy_composition(self, qmodel: GoalOrientedQLearning, atomic_tasks: dict[str, AtomicTask], room: Room):
-        if self.policy is not None:
-            return
+        if self.policy is not None or self.const_cost is not None:
+            return      # Only calculate the policy once, and if the edge is not a dead end
             
         def sub_policy(formula):
             if isinstance(formula, sympy.Not):
@@ -85,7 +89,7 @@ class DFA_Edge:
             return 0    # Task is not completed
 
     def estimate_cost(self, room: Room):
-        avail_locs = torch.nonzero(self.condition_valid)
+        avail_locs = torch.nonzero(self.condition_valid).numpy()
         cost_matrix = torch.zeros(room.shape, dtype=torch.int) - 3
         
         for loc in avail_locs:
@@ -134,25 +138,56 @@ class DFA_Edge:
 
         self.cost_matrix = cost_matrix
 
-    def contextual_cost(self, prev_edge=None, start_loc=None):
+    def contextual_cost(self, prev_edge=None, start_loc=None, room: Room=None):
+        def transport():
+            step = TraceStep(start_loc[0], start_loc[1])
+            while not step.out_of_range(room):
+                if not self.condition_valid[step.r, step.c] or self.goal_valid[step.r, step.c]:
+                    break
+                action = step.best_action(self.policy)
+                _, (next_r, next_c) = step.get_next_state(room, check_range=False)
+                step = TraceStep(next_r, next_c)
+            return (step.r, step.c)
+
         if start_loc is not None:
-            avail_locs = start_loc.unsqueeze(0)
-        elif prev_edge is not None:
+            cost = self.cost_matrix[start_loc[0], start_loc[1]].item()
+            final_loc = transport()
+            return cost if cost > -1 else np.inf, final_loc
+
+        if prev_edge is not None:
             avail_locs = torch.nonzero(torch.logical_and(prev_edge.goal_valid, self.condition_valid))
             if len(avail_locs) == 0:
-                return np.inf
+                return np.inf, None
         else:
             avail_locs = torch.nonzero(self.condition_valid)
-
         receptive_cost_values = self.cost_matrix[avail_locs[:,0], avail_locs[:,1]]
         reachable_rate = torch.sum(receptive_cost_values > -1).item() / len(receptive_cost_values)
         avg_cost = torch.sum(torch.maximum(torch.zeros_like(receptive_cost_values), 
-                                           receptive_cost_values)).item() /len(receptive_cost_values)
+                                        receptive_cost_values)).item() /len(receptive_cost_values)
         cost = (avg_cost/reachable_rate) if reachable_rate > 0 else np.inf
-        return cost
+        return cost, None
 
+@dataclass
+class StateNode:
+    """Represents a state with current position in search"""
+    state: int
+    coord: tuple[float, ...]
+    total_cost: float
+    path: list[tuple[int, int, tuple[float, ...]]]  # [(state, edge_index, coord), ...]
     
+    def __lt__(self, other):
+        return self.total_cost < other.total_cost
+    
+    def get_path(self):
+        # state: (edge_index, next_state)
+        return {self.path[i][0]: (self.path[i+1][0], self.path[i+1][1]) for i in range(len(self.path)-1)}
+
 class DFA_Task:
+    """
+    Dynamic DFA Dijkstra planning algorithm that finds shortest path to accepting states
+    considering location-dependent edge costs.
+    """
+    
     def __init__(self, formula: str, atomic_tasks: dict[str, AtomicTask], name="code_input_task"):
         self.name = name
         self.formula = formula
@@ -169,81 +204,115 @@ class DFA_Task:
     def __repr__(self):
         dfa_map = {}
         for i, row in enumerate(self.dfa_matrix):
-            for j, formula in enumerate(row):
-                if formula:
-                    dfa_map[(i, j)] = formula
+            for j, choices in enumerate(row):
+                if choices == (sympy.false,):
+                    continue
+                dfa_map[(i, j)] = f"Nondeterministic {choices}" if len(choices) > 1 else choices[0]
         return str(dfa_map)
     
     def policy_matrix(self):
         policy = []
         for i, row in enumerate(self.dfa_matrix):
             p_row = []
-            for formula in row:
-                edge = DFA_Edge(formula)
-                p_row.append(edge)
+            for j, choices in enumerate(row):
+                if sympy.false in choices:
+                    edges = [DFA_Edge(formula) for formula in choices if formula != sympy.false]
+                elif sympy.true in choices:
+                    edges = [DFA_Edge(sympy.true)]
+                else:
+                    edges = [DFA_Edge(formula) for formula in choices]
+                p_row.append(edges)
             policy.append(p_row)
         return policy 
-    
-    def policy_composition(self, room: Room, qmodel: GoalOrientedQLearning, start_state=0, start_loc=None):
-        """Get the shortest paths from start state to all accepting states with context-aware edge costs"""
-        # State representation: (previous_state, current_state)
-        dist = {}
-        dist[(None, start_state)] = 0
-        prev = {}
-        visited = set()
-        pq = [(0, None, start_state)]  # (distance, prev_state, current_state)
+        
+    def find_shortest_path(self, start_state: int, start_loc: torch.Tensor, 
+                           qmodel: GoalOrientedQLearning, room: Room, coordinate_tolerance: float = 1e-6):
+        """
+        Find shortest path from start state to any accepting state using Dijkstra's algorithm.
+        
+        Args:
+            start_state: Starting state number
+            start_coord: Starting physical coordinate
+            coordinate_tolerance: Tolerance for coordinate comparison to avoid infinite loops
+            
+        Returns:
+            Dictionary containing:
+            - 'path': List of (state, coordinate) tuples representing the path
+            - 'total_cost': Total cost of the path
+            - 'final_state': The accepting state reached
+            - 'final_coord': Final coordinate reached
+            Returns None if no path exists
+        """
+        # Priority queue: (cost, StateNode)
+        start_coord = tuple(start_loc.numpy().tolist())
+        pq = [StateNode(start_state, start_coord, 0.0, [(start_state, -1, start_coord)])]
+        heapq.heapify(pq)
+        
+        # Visited states with coordinates to avoid cycles
+        # Key: (state, rounded_coord_tuple), Value: minimum_cost_reached
+        visited = {}
+        
+        def coord_key(coord: tuple[float, ...]) -> tuple[int, ...]:
+            """Create a discrete key from coordinates for cycle detection"""
+            return tuple(round(c / coordinate_tolerance) for c in coord)
         
         while pq:
-            current_dist, prev_state, current_state = heapq.heappop(pq)
+            current = heapq.heappop(pq)
             
-            state_key = (prev_state, current_state)
-            if state_key in visited:
-                continue
-                
-            visited.add(state_key)
-            
-            # If we reached the target accepting state
-            if current_state in self.accepting_states:
-                # Reconstruct path
-                curr_key = state_key
-                path = {}
-                while curr_key is not None and curr_key[0] is not None:
-                    path[curr_key[0]] = curr_key[1]
-                    curr_key = prev.get(curr_key)
-                
+            # Check if we reached an accepting state
+            if current.state in self.accepting_states:
                 return {
-                    'path': path,
-                    'accepting_state': current_state,
-                    'distance': current_dist,
+                    'path': current.get_path(),
+                    'total_cost': current.total_cost,
+                    'final_state': current.state,
+                    'final_coord': current.coord
                 }
             
-            # Explore neighbors
-            prev_edge = self.policy[prev_state][current_state] if prev_state is not None else None
+            # Create key for visited tracking
+            state_coord_key = (current.state, coord_key(current.coord))
+            
+            # Skip if we've visited this state-coordinate with lower cost
+            if state_coord_key in visited and visited[state_coord_key] <= current.total_cost:
+                continue
+            
+            visited[state_coord_key] = current.total_cost
+            
+            # Explore all outgoing edges from current state
             for next_state in range(self.n_states):
-                if next_state == current_state:
-                    continue
-                next_key = (current_state, next_state)
-                if next_key not in visited:
-                    edge: DFA_Edge = self.policy[current_state][next_state]
-                    if edge.const_cost is None:
-                        edge.policy_composition(qmodel, self.atomic_tasks, room)
-                        # Get contextual edge cost
-                        edge_cost = edge.contextual_cost(prev_edge, start_loc)
-                    else:
-                        edge_cost = edge.const_cost
-                        
-                    if edge_cost == np.inf:
-                        continue
-                    new_dist = current_dist + edge_cost
-                    if next_key not in dist or new_dist < dist[next_key]:
-                        dist[next_key] = new_dist
-                        prev[next_key] = state_key
-                        heapq.heappush(pq, (new_dist, current_state, next_state))
+                if next_state == current.state:
+                    continue    # Skip self-loops
 
-            if start_loc is not None:
-                start_loc = None    # Starting location is used only once
+                edges: list[DFA_Edge] = self.policy[current.state][next_state]
+                if len(edges) == 0:
+                    continue    # Skip edges with no viable routes
+                
+                for ei, edge in enumerate(edges):
+                    # Get cost and next coordinate from edge's estimate function
+                    edge.policy_composition(qmodel, self.atomic_tasks, room)
+                    edge_cost, next_coord = edge.contextual_cost(None, current.coord, room)
+                    
+                    # Skip if cost is invalid
+                    if edge_cost < 0 or np.isinf(edge_cost) or np.isnan(edge_cost):
+                        continue
+                    
+                    new_total_cost = current.total_cost + edge_cost
+                    new_path = current.path + [(next_state, ei, next_coord)]
+                    
+                    # Create new state node
+                    next_node = StateNode(
+                        state=next_state,
+                        coord=next_coord,
+                        total_cost=new_total_cost,
+                        path=new_path
+                    )
+                    
+                    # Check if this state-coordinate combination is worth exploring
+                    next_key = (next_state, coord_key(next_coord))
+                    if next_key not in visited or visited[next_key] > new_total_cost:
+                        heapq.heappush(pq, next_node)
         
-        return {}
+        # No path found
+        return None
         
 if __name__ == "__main__":
     room = Room(10, 10)

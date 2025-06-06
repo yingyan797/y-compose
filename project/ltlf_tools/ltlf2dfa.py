@@ -59,8 +59,7 @@ def get_value(text, regex, value_type=float):
 def ter2symb(ap, ternary):
     """Translate ternary output to symbolic."""
     expr = And()
-    i = 0
-    for value in ternary:
+    for i, value in enumerate(ternary):
         if value == "1":
             expr = And(expr, ap[i] if isinstance(ap, tuple) else ap)
         elif value == "0":
@@ -68,7 +67,6 @@ def ter2symb(ap, ternary):
             expr = And(expr, Not(ap[i] if isinstance(ap, tuple) else ap))
         else:
             assert value == "X", "[ERROR]: the guard is not X"
-        i += 1
     return expr
 
 
