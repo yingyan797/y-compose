@@ -13,6 +13,7 @@ def atomic_or(masks):
     masks = torch.stack(masks)
     return torch.max(masks, dim=0).values
 def atomic_not(mask, full_goals):
+    # Not used
     neg = torch.logical_not(mask)
     return torch.minimum(neg, full_goals)
 
@@ -143,7 +144,12 @@ class AtomicTask:
             return -1   # Condition is not met
         else:
             return 0    # Task is not completed
-    
+        
+    def find_negation(self):
+        self.condition_negated = torch.logical_not(self.goal_valid)
+        self.goal_negated = torch.logical_not(self.condition_valid) if self.condition is not None else self.condition_negated
+        return self.goal_negated, self.goal_valid
+        
     def policy_composition(self, qmodel:GoalOrientedBase, negation=False):
         """
         Calculates the safe and efficient policy for the atomic task.
@@ -154,10 +160,9 @@ class AtomicTask:
             goal_region = self.goal_valid
             avoid_region = torch.logical_not(self.condition_valid)
         else:
+            goal_region, avoid_region = self.find_negation()
             print(f"Negation is called for the atomic task {self.formula}")
-            goal_region = torch.logical_not(self.condition_valid) if self.condition is not None else torch.logical_not(self.goal_valid)
-            avoid_region = self.goal_valid
-
+        
         goal_coords = torch.nonzero(goal_region)
         intersect_goals = []
         for gr, mask in enumerate(self.goal_regions.values()):
@@ -170,22 +175,13 @@ class AtomicTask:
         policy = qmodel.q_compose(qmodel.Q_subgoal, intersect_goals)    # initialize with subgoal policy for non-goal region
         safe_policy = qmodel.q_compose(qmodel.Q_joint, intersect_goals)
         # Check if the goal region is blank
-        intersect_blank = any(self.non_goals[goal_coords[:,0], goal_coords[:,1]])
-        if intersect_blank:
-            # Atomic task goal has intersection with non-goal region
-            interior_policy = qmodel.q_compose(qmodel.Q_subgoal, list(range(len(qmodel.goal_regions))))
-            interior_safe = qmodel.q_compose(qmodel.Q_joint, list(range(len(qmodel.goal_regions))))
-            nongoal_coords = torch.nonzero(self.non_goals)
-            policy[nongoal_coords[:,0], nongoal_coords[:,1]] = interior_policy[nongoal_coords[:,0], nongoal_coords[:,1]]
-            safe_policy[nongoal_coords[:,0], nongoal_coords[:,1]] = interior_safe[nongoal_coords[:,0], nongoal_coords[:,1]]
-        else:
-            for gr, mask in enumerate(self.goal_regions.values()):
-                other_gr = [g for g in intersect_goals if g != gr]
-                if not other_gr:
-                    continue
-                goal_coords = torch.nonzero(mask)
-                policy[goal_coords[:,0], goal_coords[:,1]] = qmodel.q_compose(qmodel.Q_subgoal, other_gr)[goal_coords[:,0], goal_coords[:,1]]
-                safe_policy[goal_coords[:,0], goal_coords[:,1]] = qmodel.q_compose(qmodel.Q_joint, other_gr)[goal_coords[:,0], goal_coords[:,1]]
+        for gr, mask in enumerate(self.goal_regions.values()):
+            other_gr = [g for g in intersect_goals if g != gr]
+            if not other_gr:
+                continue
+            goal_coords = torch.nonzero(mask)
+            policy[goal_coords[:,0], goal_coords[:,1]] = qmodel.q_compose(qmodel.Q_subgoal, other_gr)[goal_coords[:,0], goal_coords[:,1]]
+            safe_policy[goal_coords[:,0], goal_coords[:,1]] = qmodel.q_compose(qmodel.Q_joint, other_gr)[goal_coords[:,0], goal_coords[:,1]]
 
         # This section is for iterative safe policy replacement
         terrain_scan = torch.zeros(avoid_region.shape, dtype=torch.int)
@@ -247,14 +243,14 @@ class AtomicTask:
 
 if __name__ == "__main__":
     elk_name = "9room"
-    pretrained = False
+    pretrained = True
     room = load_room("saved_disc", f"{elk_name}.pt", 4)
     room.start()
     starting_region = None
     if 'starting' in room.goals:
         starting_region = room.goals.pop('starting')
     print(room.goals.keys())
-    task = AtomicTask("! goal_1 U (goal_2 | goal_3)", room)
+    task = AtomicTask("F(goal_1)", room)
     qmodel = GoalOrientedQLearning(room)
     if pretrained:
         policy = torch.load(f"project/static/policy/{elk_name}.pt")
@@ -265,10 +261,10 @@ if __name__ == "__main__":
         torch.save({"joint": qmodel.Q_joint, "subgoal": qmodel.Q_subgoal}, f"project/static/policy/{elk_name}.pt")
     
     composed_policy, policy, safe_policy = task.policy_composition(qmodel, negation=False)
-    task.test_policy(qmodel, restriction=starting_region, epsilon=0, visualize=True)
+    # task.test_policy(qmodel, restriction=starting_region, epsilon=0, visualize=True)
     # task.test_policy(elk_name, start_state=(11,11), epsilon=0, visualize=True)
 
-    # negated_policy = policy.max(dim=2, keepdim=True).values+policy.min(dim=2, keepdim=True).values-policy
+    room.draw_policy(composed_policy, fn=task.name)
 
 
 

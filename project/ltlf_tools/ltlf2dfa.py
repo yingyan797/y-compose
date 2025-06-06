@@ -25,7 +25,7 @@ import re
 import signal
 from subprocess import PIPE, Popen, TimeoutExpired, CREATE_NEW_PROCESS_GROUP
 
-from sympy import And, Not, Or, simplify, symbols
+from sympy import And, Not, Or, symbols, true, simplify_logic
 
 from ltlf_tools.base import MonaProgram
 
@@ -55,24 +55,25 @@ def get_value(text, regex, value_type=float):
         print("Could not find the value {}, in the text provided".format(regex))
         return value_type(0.0)
 
-
 def ter2symb(ap, ternary):
     """Translate ternary output to symbolic."""
-    expr = And()
+    conditions = []
     for i, value in enumerate(ternary):
         if value == "1":
-            expr = And(expr, ap[i] if isinstance(ap, tuple) else ap)
+            conditions.append(ap[i] if isinstance(ap, tuple) else ap)
         elif value == "0":
-            assert value == "0"
-            expr = And(expr, Not(ap[i] if isinstance(ap, tuple) else ap))
-        else:
-            assert value == "X", "[ERROR]: the guard is not X"
-    return expr
+            conditions.append(Not(ap[i] if isinstance(ap, tuple) else ap))
 
+    if len(conditions) == 1:
+        return conditions[0]
+    elif len(conditions) > 1:
+        return And(*conditions)
 
+    return true
+    
 def simplify_guard(guards):
-    """Make a big OR among guards and simplify them."""
-    return simplify(Or(*guards))
+    '''Construct a simplified disjunctive normal form of the guards'''
+    return simplify_logic(Or(*guards), form='dnf') if len(guards) > 1 else guards[0]
 
 
 def parse_mona(mona_output):
@@ -125,9 +126,11 @@ def parse_mona(mona_output):
 
     for c, guards in dot_trans.items():
         simplified_guard = simplify_guard(guards)
-        dot += ' {} -> {} [label="{}"];\n'.format(
-            c[0], c[1], str(simplified_guard).lower()
-        )
+        terms = simplified_guard.args if isinstance(simplified_guard, Or) else [simplified_guard]
+        for term in terms:
+            dot += ' {} -> {} [label="{}"];\n'.format(
+                c[0], c[1], str(term).lower()
+            )
 
     dot += "}"
     return dot

@@ -10,9 +10,6 @@ from boolean_task import GoalOrientedQLearning
 def dfa_and(atomic_qs):
     return torch.min(torch.stack(atomic_qs), dim=0).values
 
-def dfa_or(atomic_qs):
-    return torch.max(torch.stack(atomic_qs), dim=0).values
-
 class DFA_Edge:
     def __init__(self, formula=None):
         self.formula = formula      # Single sympy formula, not choices
@@ -43,8 +40,7 @@ class DFA_Edge:
                 return task.negated_policy
             elif isinstance(formula, sympy.And):
                 return dfa_and([sub_policy(arg) for arg in formula.args])
-            elif isinstance(formula, sympy.Or):
-                return dfa_or([sub_policy(arg) for arg in formula.args])
+
             elif isinstance(formula, sympy.Symbol):
                 task = atomic_tasks[formula.name]
                 if task.policy is None:  # Only calculate the policy once

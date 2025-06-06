@@ -70,8 +70,8 @@ class Y_Compose:
 
 if __name__ == "__main__":
     room = load_room("saved_disc", "9room.pt")
-    planning = Y_Compose(room, "9room", "t1 T t2", 
-        {"t1": "! goal_1 U (goal_2 | goal_3)", "t2": "F(goal_4)"}, pretrained=True)
+    planning = Y_Compose(room, "9room", "G(!t1) & ((t2 | t3) T t4)", 
+        {"t1": "F(goal_1)", "t2": "F(goal_2)", "t3": "F(goal_3)", "t4": "F(goal_4)"}, pretrained=True)
     print(planning.dfa_task)
     loc = room.start(restriction=planning.starting_region)
     planning.dynamic_planning(epsilon=0.01, start_loc=loc)
