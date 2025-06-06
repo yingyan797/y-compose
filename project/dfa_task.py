@@ -110,7 +110,7 @@ class DFA_Edge:
             while terminate() == 0:
                 action = step.best_action(self.policy)
                 _, (next_r, next_c) = step.get_next_state(room, check_range=False)
-                
+
                 if cost_matrix[next_r, next_c] == -2 or cost_matrix[next_r, next_c] == -1:
                     step.termination = -1
                     break

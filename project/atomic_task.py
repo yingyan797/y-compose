@@ -90,7 +90,7 @@ class TraceStep:
         dx, dy = room.action_map[self.action]
         next_x, next_y = self.r+dx, self.c+dy
         # Check if next state is in avoid region
-        if check_range and not self.out_of_range(room):
+        if not check_range or not self.out_of_range(room):
             return False, (next_x, next_y)
         else:
             return True, (self.r, self.c)
@@ -191,12 +191,13 @@ class AtomicTask:
         terrain_scan = torch.zeros(avoid_region.shape, dtype=torch.int)
 
         composed_policy = policy.clone()
-        for loc in torch.nonzero(self.room.terrain > 0).numpy():
+        for loc in torch.nonzero(self.room.terrain).numpy():
             row, col = loc[0], loc[1]
             if not goal_region[row,col] and not avoid_region[row,col] and not terrain_scan[row,col]:
                 terrain_scan[row,col] = 1
                 trace = [TraceStep(row, col)]
-                while True:
+                out_of_range = False
+                for _ in range(torch.numel(self.room.terrain)):
                     step = trace[-1]
                     a = step.best_action(composed_policy)
                     out_of_range, (next_r, next_c) = step.get_next_state(self.room)
@@ -205,14 +206,10 @@ class AtomicTask:
                         terrain_scan[trace_tensor[:,0], trace_tensor[:,1]] = 2
                         break   # Keep original policy
                     terrain_scan[step.r, step.c] = 1     
-                    if out_of_range or avoid_region[next_r, next_c]:
-                        composed_policy[step.r, step.c] = safe_policy[step.r, step.c]
-                        continue
-                    elif terrain_scan[next_r, next_c] == 1:
+                    if out_of_range or avoid_region[next_r, next_c] or terrain_scan[next_r, next_c] == 1:
                         composed_policy[step.r, step.c] = safe_policy[step.r, step.c]
                         a = step.best_action(composed_policy)
-                        out_of_range, (next_r, next_c) = step.get_next_state(self.room, check_range=True)
-                        assert not out_of_range
+                        out_of_range, (next_r, next_c) = step.get_next_state(self.room)
                     trace.append(TraceStep(next_r, next_c))
 
         if negation:
@@ -221,17 +218,9 @@ class AtomicTask:
             self.policy = composed_policy
         return composed_policy, policy, safe_policy
     
-    def test_policy(self, policy_name, start_state=None, epsilon=0.05, visualize=True, pretrained=True):
-        self.room.start(start_state=start_state, restriction=self.condition_valid)
-        qmodel = GoalOrientedQLearning(self.room)
-        if pretrained:
-            qmodel.Q_joint = torch.load(f"project/static/policy/{policy_name}-jq.pt")
-            qmodel.Q_subgoal = torch.load(f"project/static/policy/{policy_name}-sq.pt")
-        else:
-            qmodel.train_episodes(num_episodes=50, num_iterations=5, max_steps_per_episode=100)
-            torch.save(qmodel.Q_joint, f"project/static/policy/{policy_name}-jq.pt")
-            torch.save(qmodel.Q_subgoal, f"project/static/policy/{policy_name}-sq.pt")
-
+    def test_policy(self, qmodel, start_state=None, restriction=None, epsilon=0.05, visualize=True):
+        self.room.start(start_state=start_state, restriction=self.condition_valid if restriction is None else 
+                        torch.logical_and(self.condition_valid, restriction))
         policy = self.policy_composition(qmodel)[0]
         max_steps = 100
         steps = 0
@@ -258,11 +247,12 @@ class AtomicTask:
 
 if __name__ == "__main__":
     elk_name = "9room"
-    pretrained = True
+    pretrained = False
     room = load_room("saved_disc", f"{elk_name}.pt", 4)
     room.start()
+    starting_region = None
     if 'starting' in room.goals:
-        starting = room.goals.pop('starting')
+        starting_region = room.goals.pop('starting')
     print(room.goals.keys())
     task = AtomicTask("! goal_1 U (goal_2 | goal_3)", room)
     qmodel = GoalOrientedQLearning(room)
@@ -271,14 +261,14 @@ if __name__ == "__main__":
         qmodel.Q_joint = policy["joint"]
         qmodel.Q_subgoal = policy["subgoal"]
     else:
-        qmodel.train_episodes(num_episodes=85, num_iterations=4, max_steps_per_episode=85)
+        qmodel.train_episodes(num_episodes=85, num_iterations=4, max_steps_per_episode=150)
         torch.save({"joint": qmodel.Q_joint, "subgoal": qmodel.Q_subgoal}, f"project/static/policy/{elk_name}.pt")
     
     composed_policy, policy, safe_policy = task.policy_composition(qmodel, negation=False)
-    # task.test_policy(elk_name, start_state=(11,11), epsilon=0, visualize=True)
+    task.test_policy(qmodel, restriction=starting_region, epsilon=0, visualize=True)
     # task.test_policy(elk_name, start_state=(11,11), epsilon=0, visualize=True)
 
     # negated_policy = policy.max(dim=2, keepdim=True).values+policy.min(dim=2, keepdim=True).values-policy
-    room.draw_policy(composed_policy, fn="experiment_original")
+
 
 

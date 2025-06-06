@@ -78,7 +78,7 @@ class GoalOrientedBase:
             if done >= 2:
                 all_reached_gr = find_all_reached_gr(mask, next_state)
                 if gr not in all_reached_gr:
-                    reward = -10
+                    reward = -1
                 training_finished = True
             else:
                 reward = 0
@@ -143,7 +143,7 @@ class GoalOrientedBase:
                 continue
             self.epsilon = epsilon  # reset epsilon
             self.env._first_restriction = True
-            for iteration in range(1, num_iterations*2+1):
+            for iteration in range(1, num_iterations+1):
                 random.shuffle(members)
                 n_success = 0
                 for m in members:
