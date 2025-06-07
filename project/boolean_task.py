@@ -59,7 +59,7 @@ class GoalOrientedBase:
                 raise ValueError("Goal not reached, why done >= 2? Function shouldn't be called.")
             return all_reached_gr   
 
-        def training_group(mask, reward, next_state, done, gr):
+        def training_group(mask, next_state, done, gr):
             all_reached_gr = list(range(len(self.goal_regions)))
             training_finished = True
             if done >= 2:
@@ -68,20 +68,24 @@ class GoalOrientedBase:
                     reward = 0
                     training_finished = False
                     all_reached_gr = []
+                else:
+                    reward = 100
             else:
                 reward = -10
             return reward, all_reached_gr, training_finished
         
-        def training_nongoal(mask, reward, next_state, done, gr):
+        def training_nongoal(mask, next_state, done, gr):
             all_reached_gr = []
             training_finished = False
             if done >= 2:
                 all_reached_gr = find_all_reached_gr(mask, next_state)
                 if gr not in all_reached_gr:
                     reward = -1
+                else:
+                    reward = 100
                 training_finished = True
             else:
-                reward = 0
+                reward = 0 if done == 1 else -10
 
             return reward, all_reached_gr, training_finished
         
@@ -109,16 +113,17 @@ class GoalOrientedBase:
                     steps = 0
                     while steps < max_steps_per_episode:
                         action = self.select_action(self.Q_subgoal, state, gr)
-                        next_state, reward, done = self.env.step(action)
-
+                        next_state, done = self.env.step(action)
+                        reward = 0
                         training_finished = False
                         if done >= 2:
-                            if goal_region[next_state[0], next_state[1]]:
-                                # Although some goals are reached, none matches gr. Elk reward is reduced.
+                            if goal_region[tuple(next_state)]:
+                                reward = 100
                                 training_finished = True
                             else:
                                 done = 0
-                                reward = 0
+                        elif done == 0:  # Reaching an obstacle
+                            reward = -10
 
                         self._train_subgoalq(state, action, reward, next_state, gr)
                         if training_finished: 
@@ -153,9 +158,9 @@ class GoalOrientedBase:
                         steps = 0
                         while steps < max_steps_per_episode:
                             action = self.select_action(self.Q_joint, state, m)
-                            next_state, reward, done = self.env.step(action)
+                            next_state, done = self.env.step(action)
 
-                            reward, all_reached_gr, training_finished = training_function(gmask, reward, next_state, done, m)
+                            reward, all_reached_gr, training_finished = training_function(gmask, next_state, done, m)
                             self._train_jointq(state, action, reward, next_state, all_reached_gr)
                             if training_finished: 
                                 success = 1 if reward > 0 else 0
@@ -226,42 +231,44 @@ class GoalOrientedQLearning(GoalOrientedBase):
     
     def _train_jointq(self, state, action, reward, next_state, done):
         """Get Q-value for a state-subgoal-action triple."""
-        sx, sy = tuple(state[i].expand(len(self.goal_regions)) for i in range(2))
-        action_tensor = torch.IntTensor([action]).expand(len(self.goal_regions))
-        nx, ny = tuple(next_state[i].expand(len(self.goal_regions)) for i in range(2))
-        current_q = self.Q_joint[sx, sy, list(range(len(self.goal_regions))), action_tensor]
+        num_goals = len(self.goal_regions)
+        states = tuple([state[i]]*num_goals for i in range(self.env.state_dim))
+        actions = [action] * num_goals
+        next_states = tuple([next_state[i]]*num_goals for i in range(self.env.state_dim))
+        current_q = self.Q_joint[states + (list(range(num_goals)), actions)]
 
         if done:
             delta = torch.zeros_like(current_q)-1e-3
             delta[done] = reward - current_q[done]
         else:
-            next_q = self.Q_joint[nx, ny, list(range(len(self.goal_regions)))]
+            next_q = self.Q_joint[next_states + (list(range(num_goals)),)]
             max_next_q = next_q.max(1).values
             delta = reward + self.gamma * max_next_q - current_q
             
         new_q = current_q + self.learning_rate * delta
-        self.Q_joint[sx, sy, list(range(len(self.goal_regions))), action_tensor] = new_q
+        self.Q_joint[states + (list(range(num_goals)), actions)] = new_q
 
-    def _train_subgoalq(self, state, action, reward, next_state, done):
-        sx, sy = tuple(state[i].expand(len(self.goal_regions)) for i in range(2))
-        action_tensor = torch.IntTensor([action]).expand(len(self.goal_regions))
-        current_q = self.Q_subgoal[sx, sy, list(range(len(self.goal_regions))), action_tensor]
+    def _train_subgoalq(self, state, action, reward, next_state, done:int):
+        num_goals = len(self.goal_regions)
+        states = tuple([state[i]]*num_goals for i in range(self.env.state_dim))
+        actions = [action] * num_goals
+        current_q = self.Q_subgoal[states + (list(range(num_goals)), actions)]
         delta = torch.zeros_like(current_q)
         if reward > 0:
             delta[done] = reward - current_q[done]
         else:
-            next_q = self.Q_subgoal[next_state[0], next_state[1], done]
+            next_q = self.Q_subgoal[tuple(next_state) + (done,)]
             max_next_q = next_q.max()
             delta[done] = reward + self.gamma * max_next_q - current_q[done]
         new_q = current_q + self.learning_rate * delta
-        self.Q_subgoal[sx, sy, list(range(len(self.goal_regions))), action_tensor] = new_q
+        self.Q_subgoal[states + (list(range(num_goals)), actions)] = new_q
     
     def select_action(self, q, state, gr):
         '''Select the best action based on q, q can be joint or subgoal'''
         if self._random_condition():
             return random.choice(self.actions)
 
-        q_sg = q[state[0], state[1], gr]
+        q_sg = q[tuple(state) + (gr,)]
         action_values = {}
         for a in self.actions:
             a_val = q_sg[a].item()
@@ -284,6 +291,7 @@ from collections import deque
 from neuralnets import NAFNetwork, F
 
 class GoalOrientedNAF(GoalOrientedBase):
+    # Not used extension, maybe useful for continuous tasks
     def __init__(self, room:Room, goal_resolution):
         super().__init__(room)
         self.goal_resolution = goal_resolution
@@ -445,8 +453,5 @@ class GoalOrientedNAF(GoalOrientedBase):
 # Example usage
 if __name__ == "__main__":
     # Initialize the environment and agent
-    agent = GoalOrientedQLearning(
-        room=load_room("saved_disc", "overlap.pt", 4),
-        pretrained=False,
-    )
-    print([group[1] for group in agent._partition_goals()])
+    t = torch.ones(16,16,16, dtype=torch.bool)
+    # get tensor memory size
