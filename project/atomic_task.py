@@ -230,6 +230,8 @@ def get_composed_policy(qmodel:GoalOrientedBase, goal, condition, policy, safe_p
     
     def policy_replacement(ctuple):
         trace = [TraceStep(ctuple)]
+        if goal[ctuple]:
+            return trace, True
         out_of_range = False
         for _ in range(torch.numel(goal)):
             step = trace[-1]
@@ -250,7 +252,7 @@ def get_composed_policy(qmodel:GoalOrientedBase, goal, condition, policy, safe_p
     if starting_loc is None:
         for loc in condition.nonzero().numpy():
             ctuple = tuple(loc)
-            if not goal[ctuple] and condition[ctuple] and not terrain_scan[ctuple]:
+            if condition[ctuple] and not terrain_scan[ctuple]:
                 policy_replacement(ctuple)
 
         return composed_policy, policy, safe_policy

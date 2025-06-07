@@ -12,14 +12,14 @@ class StateNode:
     state: int
     coord: tuple[float, ...]
     total_cost: float
-    path: list[tuple[int, int, tuple[float, ...]]]  # [(state, edge_index, coord), ...]
+    path: list[tuple[int, DFA_Edge]]  # [(state, edge_index), ...]
     
     def __lt__(self, other):
         return self.total_cost < other.total_cost
     
     def get_path(self):
         # state: (edge_index, next_state)
-        return {self.path[i][0]: (self.path[i+1][0], self.path[i+1][1]) for i in range(len(self.path)-1)}
+        return [(self.path[i][0], self.path[i+1][0], self.path[i+1][1]) for i in range(len(self.path)-1)]
 
 class DFA_Task:
     """
@@ -64,7 +64,7 @@ class DFA_Task:
             policy.append(p_row)
         return policy 
         
-    def find_shortest_path(self, start_state: int, start_loc: torch.Tensor, 
+    def find_shortest_path(self, start_state: int, start_coord: tuple, 
                            qmodel: GoalOrientedQLearning, room: Room, coordinate_tolerance: float = 1e-6):
         """
         Find shortest path from start state to any accepting state using Dijkstra's algorithm.
@@ -83,8 +83,7 @@ class DFA_Task:
             Returns None if no path exists
         """
         # Priority queue: (cost, StateNode)
-        start_coord = tuple(start_loc.numpy().tolist())
-        pq = [StateNode(start_state, start_coord, 0.0, [(start_state, -1, start_coord)])]
+        pq = [StateNode(start_state, start_coord, 0.0, [(start_state, None)])]
         heapq.heapify(pq)
         
         # Visited states with coordinates to avoid cycles
@@ -127,16 +126,17 @@ class DFA_Task:
                 
                 for ei, edge in enumerate(edges):
                     # Get cost and next coordinate from edge's estimate function
-                    edge.policy_composition(qmodel, self.atomic_tasks, room)
-                    edge_cost, next_coord = edge.contextual_cost(None, current.coord, room)
+                    sequence, trace = edge.policy_composition(qmodel, self.atomic_tasks, current.coord)
+                    edge_cost = sum(len(seg)-1 for seg in trace)
                     
                     # Skip if cost is invalid
                     if edge_cost < 0 or np.isinf(edge_cost) or np.isnan(edge_cost):
                         continue
                     
                     new_total_cost = current.total_cost + edge_cost
-                    new_path = current.path + [(next_state, ei, next_coord)]
-                    
+
+                    next_coord = trace[-1][-1].loc
+                    new_path = current.path + [(next_state, edge)]
                     # Create new state node
                     next_node = StateNode(
                         state=next_state,

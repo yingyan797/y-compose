@@ -68,7 +68,7 @@ class Room:
 
         self.loc = new_loc
         if trace:
-            self._trace.append(new_loc.numpy().tolist())
+            self._trace.append(new_loc.tolist())
 
         return new_loc, label.item()
     

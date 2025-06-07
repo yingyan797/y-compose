@@ -85,7 +85,7 @@ def conjunction_find_shortest_goal_sequence_optimized(
     
     # Reconstruct the path
     sequence = []
-    complete_path = [start_location]
+    path_segments = []
     current_mask = final_mask
     current_last = best_last
     
@@ -93,8 +93,7 @@ def conjunction_find_shortest_goal_sequence_optimized(
         sequence.append(current_last)
         prev_last, prev_location, path = parent[(current_mask, current_last)]
         
-        if path and len(path) > 1:
-            complete_path.extend(path[1:])
+        path_segments = [path] + path_segments
         
         if prev_last == -1:
             break
@@ -103,7 +102,7 @@ def conjunction_find_shortest_goal_sequence_optimized(
         current_last = prev_last
     
     sequence.reverse()
-    return sequence, best_cost, complete_path
+    return sequence, path_segments
 
 class DFA_Edge:
     def __init__(self, formula=None):
@@ -123,7 +122,7 @@ class DFA_Edge:
         """
         Calculate the policy for the edge.
         """
-        if self.policy is not None or self.const_cost is not None:
+        if self.const_cost is not None:
             return      # Only calculate the policy once, and if the edge is not a dead end
         
         shared_condition_zone = torch.ones(qmodel.env.shape, dtype=torch.bool)
@@ -145,12 +144,13 @@ class DFA_Edge:
                 raise TypeError("No nested formula due to DNF")
         
         # Get all permutations of goals to try different orderings
-        print(goals.keys())
         conjunction_goals = list(goals.values())
-        sequence, cost, path = conjunction_find_shortest_goal_sequence_optimized(
+        sequence, trace = conjunction_find_shortest_goal_sequence_optimized(
             shared_condition_zone, conjunction_goals, tuple(start_loc), qmodel)
+        
+        self.policy = trace
+        return [list(goals.keys())[s] for s in sequence], trace
 
-        print(sequence, cost, path)
             
     def complete(self, loc):
         if self.goal_valid[loc[0], loc[1]] > 0:
@@ -160,84 +160,6 @@ class DFA_Edge:
         else:
             return 0    # Task is not completed
 
-    def estimate_cost(self, room: Room):
-        avail_locs = torch.nonzero(self.condition_valid).numpy()
-        cost_matrix = torch.zeros(room.shape, dtype=torch.int) - 3
-        
-        for loc in avail_locs:
-            if cost_matrix[loc[0], loc[1]] > -3:
-                continue
-                
-            step = TraceStep(loc[0], loc[1])
-            cost_matrix[step.r, step.c] = -2
-            trace = [step]
-            
-            def terminate():
-                termination = 0
-                if self.goal_valid[step.r, step.c]:
-                    termination = 1
-                elif step.out_of_range(room) or not self.condition_valid[step.r, step.c]:
-                    termination = -1
-                
-                if termination != 0:
-                    step.termination = termination
-                return termination
-            
-            while terminate() == 0:
-                action = step.best_action(self.policy)
-                _, (next_r, next_c) = step.get_next_state(room, check_range=False)
-
-                if cost_matrix[next_r, next_c] == -2 or cost_matrix[next_r, next_c] == -1:
-                    step.termination = -1
-                    break
-                else:
-                    step = TraceStep(next_r, next_c)
-                    trace.append(step)
-                    if cost_matrix[next_r, next_c] > -1:
-                        step.termination = 1
-                        break
-                    cost_matrix[next_r, next_c] = -2
-            
-            n_steps = torch.IntTensor(list(range(len(trace)-1, -1, -1)))
-            trace_coords = torch.IntTensor([[step.r, step.c] for step in trace])
-            
-            if step.termination == 1:
-                if cost_matrix[step.r, step.c] > -1:
-                    n_steps += cost_matrix[step.r, step.c]
-                cost_matrix[trace_coords[:,0], trace_coords[:,1]] = n_steps
-            else:
-                cost_matrix[trace_coords[:,0], trace_coords[:,1]] = -1
-
-        self.cost_matrix = cost_matrix
-
-    def contextual_cost(self, prev_edge=None, start_loc=None, room: Room=None):
-        def transport():
-            step = TraceStep(start_loc[0], start_loc[1])
-            while not step.out_of_range(room):
-                if not self.condition_valid[step.r, step.c] or self.goal_valid[step.r, step.c]:
-                    break
-                action = step.best_action(self.policy)
-                _, (next_r, next_c) = step.get_next_state(room, check_range=False)
-                step = TraceStep(next_r, next_c)
-            return (step.r, step.c)
-
-        if start_loc is not None:
-            cost = self.cost_matrix[start_loc[0], start_loc[1]].item()
-            final_loc = transport()
-            return cost if cost > -1 else np.inf, final_loc
-
-        if prev_edge is not None:
-            avail_locs = torch.nonzero(torch.logical_and(prev_edge.goal_valid, self.condition_valid))
-            if len(avail_locs) == 0:
-                return np.inf, None
-        else:
-            avail_locs = torch.nonzero(self.condition_valid)
-        receptive_cost_values = self.cost_matrix[avail_locs[:,0], avail_locs[:,1]]
-        reachable_rate = torch.sum(receptive_cost_values > -1).item() / len(receptive_cost_values)
-        avg_cost = torch.sum(torch.maximum(torch.zeros_like(receptive_cost_values), 
-                                        receptive_cost_values)).item() /len(receptive_cost_values)
-        cost = (avg_cost/reachable_rate) if reachable_rate > 0 else np.inf
-        return cost, None
     
 if __name__ == "__main__":
     elk_name = "overlap"

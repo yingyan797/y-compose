@@ -27,45 +27,23 @@ class Y_Compose:
             torch.save({"joint": self.qmodel.Q_joint, "subgoal": self.qmodel.Q_subgoal}, f"project/static/policy/{name}.pt")
             self.qmodel.plot_training_results(why_done_subgoal, why_done_joint, f"project/static/training/{name}_training")
 
-    def dynamic_planning(self, epsilon=0.01, start_loc=None):
+    def policy_rollout(self, start_loc=None):
         print(f"Dynamic planning started at {start_loc}")
-        dfa_state = 0
-        policy = self.dfa_task.find_shortest_path(dfa_state, start_loc, self.qmodel, self.room)
+        policy = self.dfa_task.find_shortest_path(0, start_loc, self.qmodel, self.room)
         optimal_path = policy["path"]
+        print(f"Optimal path is available!")
 
-        print(f"Optimal path is available: {optimal_path}")
-        while dfa_state not in self.dfa_task.accepting_states:
-            target_state, edge_index = optimal_path[dfa_state]      # The next dfa state to move to
-            target_edge: DFA_Edge = self.dfa_task.policy[dfa_state][target_state][edge_index]
-            target_policy = target_edge.policy
-            x = self.room.loc
-
-            completion = target_edge.complete(x)
-            if completion == 0:   # Task is not completed
-                if random.random() < epsilon:
-                    action = random.choice(list(range(self.room.n_actions)))
-                else:
-                    action = target_policy[x[0], x[1]].argmax().item()
-                x, _, _ = self.room.step(action, trace=True)
-                continue
-            elif completion == 1:   # Task is completed
-                dfa_state = target_state
-            else:   # No longer following the optimal path, need to re-plan
-                for next_state in range(self.dfa_task.n_states):
-                    for next_edge in self.dfa_task.policy[dfa_state][next_state]:
-                        if next_edge.complete(x) == 1:
-                            dfa_state = next_state
-                            break
-                    break
-                else:
-                    next_state = dfa_state
- 
-                print(f"Re-planning to {next_state}")    
-                
-                policy = self.dfa_task.find_shortest_path(dfa_state, x, self.qmodel, self.room)
-                optimal_path = policy["path"]
+        for start_state, next_state, edge in optimal_path:
+            for segment in edge.policy:
+                for step in segment:
+                    if step.action < 0:
+                        # State Transition Point
+                        print(step.loc)
+                        continue
+                    self.room.step(step.action, True)
         
         animate_trace(torch.zeros_like(self.room.terrain), self.room.terrain, self.room.get_trace())
+        print("Please check animation.")
 
 
 if __name__ == "__main__":
@@ -74,4 +52,4 @@ if __name__ == "__main__":
         {"t1": "F(goal_1)", "t2": "F(goal_2)", "t3": "F(goal_3)", "t4": "F(goal_4)"}, pretrained=True)
     print(planning.dfa_task)
     loc = room.start(restriction=planning.starting_region)
-    planning.dynamic_planning(epsilon=0.01, start_loc=loc)
+    planning.policy_rollout(start_loc=loc)
