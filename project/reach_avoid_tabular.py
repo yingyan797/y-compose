@@ -2,9 +2,10 @@ import torch, random, os, json
 import numpy as np
 from PIL import Image
 import matplotlib.pyplot as plt
-from matplotlib.patches import Arrow, Rectangle, Circle
+from matplotlib.patches import Arrow, Rectangle, Circle    
 
-class Room:     # An elk grazing in a field
+class Room:     
+    ''' An elk grazing in a field without resource constraint'''
     def __init__(self, height=30, width=30, n_actions=8):
         self.shape = (height, width)
         self.state_dim = 2
@@ -12,82 +13,64 @@ class Room:     # An elk grazing in a field
         self.n_actions = n_actions
         if n_actions:
             self.action_map = {
-                0: [-1, 0],
-                1: [0, 1],
-                2: [1, 0],
-                3: [0, -1],
-                4: [-1, 1],
-                5: [1, 1],
-                6: [1, -1],
-                7: [-1, -1]
+                0: np.array([-1, 0]),
+                1: np.array([0, 1]),
+                2: np.array([1, 0]),
+                3: np.array([0, -1]),
+                4: np.array([-1, 1]),
+                5: np.array([1, 1]),
+                6: np.array([1, -1]),
+                7: np.array([-1, -1]),
             }
-        self.base = torch.ones((height, width), dtype=torch.bool)
-        self._reward_lev = 100
+        self.base = torch.ones(self.shape, dtype=torch.bool)
         self._first_restriction = True
         self.goals = dict[str, torch.BoolTensor]()
-        self.always = None
         self.terrain = None
-        self.loc = torch.zeros(2, dtype=torch.int)
-
-    def opposite_action(self, action):
-        return (action + 2) % 4 + (4 if action >= 4 else 0)
+        self.loc = np.zeros(self.state_dim, dtype=np.int32)
             
-    def start(self, start_state=None, restriction=None):
-        def to_tensor(loc):
-            return torch.IntTensor(loc) if self.n_actions else torch.FloatTensor(loc)
-
+    def start(self, start_state=None, restriction=None) -> np.ndarray:
         if self.terrain is None:
             base = self.base.to(torch.uint8)*2
             masks = [goal.to(torch.uint8)+1 for name, goal in self.goals.items() if name != "starting"]
-            self.terrain = torch.minimum(base, torch.max(torch.stack(masks), dim=0).values) + self.always.to(torch.uint8)
-            self._avail_locs = torch.nonzero(self.terrain).numpy().tolist()
+            self.terrain = torch.minimum(base, torch.max(torch.stack(masks), dim=0).values)
+            self._avail_locs = torch.nonzero(self.terrain).numpy()
         if start_state is not None:
-            loc = to_tensor(start_state)
+            loc = start_state
         elif restriction is not None:
             # region = [(r,c) for r,c in self._avail_locs if restriction[r,c] > 0]
-            region = restriction.nonzero().numpy().tolist()
+            region = restriction.nonzero().numpy()
             if self._first_restriction:
                 print(f"The restricted region has {len(region)} cells.")
                 self._first_restriction = False
-            loc = to_tensor(random.choice(region))
+            loc = random.choice(region)
         else:
-            loc = to_tensor(random.choice(self._avail_locs))
+            loc = random.choice(self._avail_locs)
 
         self.loc = loc
         self._trace = [self.loc]
         return self.loc
 
     def step(self, action, trace=False):
-        new_loc = [0,0]
+        new_loc = [0] * self.state_dim
         label = 0
         if self.n_actions:                
-            new_loc = self.loc + torch.IntTensor(self.action_map[action])
-            row_in = new_loc[0] in range(self.shape[0])
-            col_in = new_loc[1] in range(self.shape[1])
-            if not (row_in and col_in):
-                return self.loc, -10, 0
-            label = self.terrain[new_loc[0], new_loc[1]]
-            if not label:
-                return self.loc, -10, 0
+            new_loc = self.loc + self.action_map[action]
         else:
-            # -1, 1
+            # Currently not used, need to fix
             ang = torch.squeeze(action * torch.pi)
-            new_loc = self.loc + 10*torch.stack([-torch.cos(ang), torch.sin(ang)])
-            row_in = new_loc[0] >= 0 and new_loc[0] <= self.shape[0]
-            col_in = new_loc[1] >= 0 and new_loc[1] <= self.shape[1]
-            if not (row_in and col_in):
-                return self.loc, -10, 0
-            label = self.terrain[int(new_loc[0].item()), int(new_loc[1].item())]
-            if not label:
-                return self.loc, -10, 0
+            new_loc = self.loc + 10*np.array([-torch.cos(ang), torch.sin(ang)])
+        out_of_range = tuple(new_loc[i] < 0 or new_loc[i] >= self.shape[i] for i in range(self.state_dim))
+        if any(out_of_range):
+            return self.loc, 0
+        label = self.terrain[tuple(new_loc)]
+        if not label:   # Reaching an obstacle
+            return self.loc, 0
 
         self.loc = new_loc
         if trace:
-            self._trace.append(new_loc)
+            self._trace.append(new_loc.tolist())
 
-        if label >= 2:
-            return new_loc, self._reward_lev, label
-        return new_loc, 0, 0     
+        return new_loc, label.item()
     
     def draw_policy(self, q_values, mask=None, fn="policy"):
         """
@@ -174,6 +157,11 @@ class Room:     # An elk grazing in a field
         
         plt.tight_layout()
         plt.savefig(f"project/static/policy/{fn}.png")
+        plt.close()
+        print(f"Policy saved to project/static/policy/{fn}.png")
+
+    def get_trace(self):
+        return np.array(self._trace)
 
 def create_room(name):
     match name:
@@ -213,7 +201,6 @@ def load_room(mode, name, n_actions=8):
     h, w = tuple(project['dim'])
     room = Room(h, w, n_actions)
     layers = {}
-    always_mask = torch.zeros(h, w, dtype=bool)
     for layer in project["terrain"]:
         goal = layer["name"]
         mask = layer["mask"]
@@ -222,24 +209,13 @@ def load_room(mode, name, n_actions=8):
         else:
             if torch.any(mask):
                 layers[goal] = mask
-                if layer["always"]:
-                    always_mask = torch.maximum(always_mask, mask)
-    room.always = always_mask
     room.goals = layers
     return room
 
 
 if __name__ == "__main__":
     room = load_room("saved_cont", "road.pt")
-    room.start()
+    room.start(start_state=[1,2])
     room.visual()
 
-    # a = torch.ones((16,16,10,10,8))
-    # pa = a.permute(0,1,4,2,3).reshape(16,16,8,-1)
-
-    # indices = torch.tensor([12, 45, 79, 88], dtype=torch.int)
-    # print(pa.index_select(3, indices).shape)
-    
-    # t = torch.IntTensor([1,2,4,4,0])
-    # print(torch.max(t, 0))
 

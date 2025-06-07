@@ -1,5 +1,5 @@
 import numpy as np
-import os, subprocess
+import os, sympy
 from ltlf_tools.parser.ltlf import LTLfParser
 from ltlf_tools.ltlf2dfa import MonaProgram, ter2symb, simplify_guard, symbols, output2dot
 
@@ -92,12 +92,17 @@ def parse_dfa(p_formula, dfa_text):
             else:
                 dot_trans[(state_i, state_j)] = [guard]
     min_state = max(1, min_state)
-    matrix = [["" for _ in range(min_state, max_state+1)] for _ in range(min_state, max_state+1)]
+    matrix = [[(sympy.false,) for _ in range(min_state, max_state+1)] for _ in range(min_state, max_state+1)]
     mat_repr = [["" for _ in range(min_state, max_state+1)] for _ in range(min_state, max_state+1)]
     for c, guards in dot_trans.items():
         simplified_guard = simplify_guard(guards)
-        matrix[c[0]-1][c[1]-1] = simplified_guard
-        mat_repr[c[0]-1][c[1]-1] = str(simplified_guard).lower()
+        s0, s1 = c[0]-1, c[1]-1
+        mat_repr[s0][s1] = str(simplified_guard).lower()
+        choices = (simplified_guard,)
+        if isinstance(simplified_guard, sympy.Or):
+            choices = simplified_guard.args
+        matrix[s0][s1] = choices
+
     result["matrix"] = mat_repr
     return result, matrix
 
@@ -120,7 +125,7 @@ def formula_to_dfa(ifml, file_name):
         with open(opath, "r") as f:
             mona_output = f.read()
         return parse_dfa(p_formula, mona_output), (mona_in, mona_output) 
-    return [False], mona_in
+    return ({}, []), mona_in
 
 if __name__ == "__main__":
     formula = formula_parser("!a | !b")
