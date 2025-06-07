@@ -96,7 +96,7 @@ class TraceStep:
             return True, self.loc
         
     def __repr__(self):
-        return f"Step({self.loc}, a={self.action})"
+        return f"({self.loc}, a={self.action});"
 
 class AtomicTask:
     def __init__(self, formula, room:Room, name="code_input_atomic_task"):
@@ -260,7 +260,7 @@ def get_composed_policy(qmodel:GoalOrientedBase, goal, condition, policy, safe_p
     return policy_replacement(starting_loc)
 
 if __name__ == "__main__":
-    elk_name = "overlap"
+    elk_name = "9room"
     pretrained = True
     room = load_room("saved_disc", f"{elk_name}.pt", 4)
     room.start()
@@ -268,7 +268,7 @@ if __name__ == "__main__":
     if 'starting' in room.goals:
         starting_region = room.goals.pop('starting')
     print(room.goals.keys())
-    task = AtomicTask("F (!goal_3)", room)
+    task = AtomicTask("! goal_1 U goal_2", room)
     qmodel = GoalOrientedQLearning(room)
     if pretrained:
         policy = torch.load(f"project/static/policy/{elk_name}.pt")

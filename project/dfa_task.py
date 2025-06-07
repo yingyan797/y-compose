@@ -12,11 +12,17 @@ class StateNode:
     state: int
     coord: tuple[float, ...]
     total_cost: float
-    path: list[tuple[int, DFA_Edge]]  # [(state, edge_index), ...]
+    path: list[tuple[int, list]]  # [(state, edge_index), ...]
     
     def __lt__(self, other):
         return self.total_cost < other.total_cost
+        
+    def __repr__(self):
+        return f"<{self.state}, {self.coord}, {self.total_cost}>"
     
+    def embed(self, error=1e-6):
+        return (self.state, tuple(round(c / error) for c in self.coord))
+
     def get_path(self):
         # state: (edge_index, next_state)
         return [(self.path[i][0], self.path[i+1][0], self.path[i+1][1]) for i in range(len(self.path)-1)]
@@ -65,7 +71,7 @@ class DFA_Task:
         return policy 
         
     def find_shortest_path(self, start_state: int, start_coord: tuple, 
-                           qmodel: GoalOrientedQLearning, room: Room, coordinate_tolerance: float = 1e-6):
+                           qmodel: GoalOrientedQLearning, coordinate_tolerance: float = 1e-6):
         """
         Find shortest path from start state to any accepting state using Dijkstra's algorithm.
         
@@ -83,37 +89,32 @@ class DFA_Task:
             Returns None if no path exists
         """
         # Priority queue: (cost, StateNode)
-        pq = [StateNode(start_state, start_coord, 0.0, [(start_state, None)])]
+        pq = [StateNode(start_state, start_coord, 0.0, [(start_state, [])])]
         heapq.heapify(pq)
         
         # Visited states with coordinates to avoid cycles
         # Key: (state, rounded_coord_tuple), Value: minimum_cost_reached
         visited = {}
-        
-        def coord_key(coord: tuple[float, ...]) -> tuple[int, ...]:
-            """Create a discrete key from coordinates for cycle detection"""
-            return tuple(round(c / coordinate_tolerance) for c in coord)
-        
+
         while pq:
             current = heapq.heappop(pq)
-            
             # Check if we reached an accepting state
             if current.state in self.accepting_states:
                 return {
-                    'path': current.get_path(),
-                    'total_cost': current.total_cost,
-                    'final_state': current.state,
-                    'final_coord': current.coord
-                }
+                        'path': current.get_path(),
+                        'total_cost': current.total_cost,
+                        'final_state': current.state,
+                        'final_coord': current.coord
+                    }
             
             # Create key for visited tracking
-            state_coord_key = (current.state, coord_key(current.coord))
+            state_coord_key = current.embed()
             
             # Skip if we've visited this state-coordinate with lower cost
-            if state_coord_key in visited and visited[state_coord_key] <= current.total_cost:
+            if state_coord_key in visited and not visited[state_coord_key] > current:
                 continue
             
-            visited[state_coord_key] = current.total_cost
+            visited[state_coord_key] = current
             
             # Explore all outgoing edges from current state
             for next_state in range(self.n_states):
@@ -127,7 +128,8 @@ class DFA_Task:
                 for ei, edge in enumerate(edges):
                     # Get cost and next coordinate from edge's estimate function
                     sequence, trace = edge.policy_composition(qmodel, self.atomic_tasks, current.coord)
-                    edge_cost = sum(len(seg)-1 for seg in trace)
+                    edge_cost = sum(len(seg) for seg in trace) + 1 - len(trace)
+                    # print(trace, edge_cost)
                     
                     # Skip if cost is invalid
                     if edge_cost < 0 or np.isinf(edge_cost) or np.isnan(edge_cost):
@@ -136,7 +138,7 @@ class DFA_Task:
                     new_total_cost = current.total_cost + edge_cost
 
                     next_coord = trace[-1][-1].loc
-                    new_path = current.path + [(next_state, edge)]
+                    new_path = current.path + [(next_state, trace)]
                     # Create new state node
                     next_node = StateNode(
                         state=next_state,
@@ -146,12 +148,10 @@ class DFA_Task:
                     )
                     
                     # Check if this state-coordinate combination is worth exploring
-                    next_key = (next_state, coord_key(next_coord))
-                    if next_key not in visited or visited[next_key] > new_total_cost:
+                    next_key = next_node.embed()
+                    if next_key not in visited or visited[next_key] > next_node:
                         heapq.heappush(pq, next_node)
         
-        # No path found
-        return None
         
 if __name__ == "__main__":
     room = Room(10, 10)

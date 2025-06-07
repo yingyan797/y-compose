@@ -107,7 +107,6 @@ def conjunction_find_shortest_goal_sequence_optimized(
 class DFA_Edge:
     def __init__(self, formula=None):
         self.formula = formula      # Single sympy formula, not choices
-        self.policy = None
         self.cost_matrix = None
         self.const_cost = None
         if (isinstance(formula, str) and formula == "") or formula == sympy.false:
@@ -148,7 +147,7 @@ class DFA_Edge:
         sequence, trace = conjunction_find_shortest_goal_sequence_optimized(
             shared_condition_zone, conjunction_goals, tuple(start_loc), qmodel)
         
-        self.policy = trace
+        # print(self.formula, start_loc, len(trace))
         return [list(goals.keys())[s] for s in sequence], trace
 
             

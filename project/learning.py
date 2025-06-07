@@ -3,6 +3,7 @@ from atomic_task import AtomicTask, animate_trace
 from dfa_task import DFA_Task, DFA_Edge
 from boolean_task import GoalOrientedQLearning
 import torch, random
+import numpy as np
 
 class Y_Compose:
     '''Main class for learning and testing complex policies'''
@@ -29,27 +30,28 @@ class Y_Compose:
 
     def policy_rollout(self, start_loc=None):
         print(f"Dynamic planning started at {start_loc}")
-        policy = self.dfa_task.find_shortest_path(0, start_loc, self.qmodel, self.room)
+        policy = self.dfa_task.find_shortest_path(0, tuple(start_loc), self.qmodel)
         optimal_path = policy["path"]
         print(f"Optimal path is available!")
 
-        for start_state, next_state, edge in optimal_path:
-            for segment in edge.policy:
+        for start_state, next_state, edge_policy in optimal_path:
+            # print(start_state, next_state, edge.formula, edge.policy)
+            for segment in edge_policy:
                 for step in segment:
-                    if step.action < 0:
-                        # State Transition Point
-                        print(step.loc)
-                        continue
-                    self.room.step(step.action, True)
-        
+                    # print(step)
+                    if step.action >= 0:                        # State Transition Point
+                        self.room.step(step.action, True)
+                
         animate_trace(torch.zeros_like(self.room.terrain), self.room.terrain, self.room.get_trace())
         print("Please check animation.")
 
 
 if __name__ == "__main__":
     room = load_room("saved_disc", "9room.pt")
-    planning = Y_Compose(room, "9room", "G(!t1) & ((t2 | t3) T t4)", 
+    planning = Y_Compose(room, "9room", "G(!t2) & ((t1 | t3) T t4)", 
         {"t1": "F(goal_1)", "t2": "F(goal_2)", "t3": "F(goal_3)", "t4": "F(goal_4)"}, pretrained=True)
     print(planning.dfa_task)
-    loc = room.start(restriction=planning.starting_region)
-    planning.policy_rollout(start_loc=loc)
+
+    constant_start = np.array([17, 2])
+    room.start(start_state=constant_start)
+    planning.policy_rollout(constant_start)
