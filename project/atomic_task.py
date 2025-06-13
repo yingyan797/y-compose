@@ -260,29 +260,30 @@ def get_composed_policy(qmodel:GoalOrientedBase, goal, condition, policy, safe_p
     return policy_replacement(starting_loc)
 
 if __name__ == "__main__":
-    elk_name = "9room"
-    pretrained = True
+    elk_name = "office"
+    pretrained = False
     room = load_room("saved_disc", f"{elk_name}.pt", 4)
     room.start()
     starting_region = None
     if 'starting' in room.goals:
         starting_region = room.goals.pop('starting')
     print(room.goals.keys())
-    task = AtomicTask("! goal_1 U goal_2", room)
+    task = AtomicTask("F(goal_3)", room, f"{elk_name}2")
     qmodel = GoalOrientedQLearning(room)
     if pretrained:
         policy = torch.load(f"project/static/policy/{elk_name}.pt")
         qmodel.Q_joint = policy["joint"]
         qmodel.Q_subgoal = policy["subgoal"]
     else:
-        qmodel.train_episodes(num_episodes=85, num_iterations=4, max_steps_per_episode=150)
+        subgoal, joint = qmodel.train_episodes(num_episodes=85, num_iterations=4, max_steps_per_episode=150)
+        # qmodel.plot_training_results(subgoal, joint, elk_name)
         torch.save({"joint": qmodel.Q_joint, "subgoal": qmodel.Q_subgoal}, f"project/static/policy/{elk_name}.pt")
     
     composed_policy, policy, safe_policy = task.policy_composition(qmodel)
     # task.test_policy(qmodel, restriction=starting_region, epsilon=0, visualize=True)
-    # task.test_policy(elk_name, start_state=(11,11), epsilon=0, visualize=True)
+    # task.test_policy(qmodel, start_state=(17,2), epsilon=0, visualize=True)
     for i, p in enumerate([composed_policy]):
-        room.draw_policy(p, fn=f"{task.name}_{i}")
+        room.draw_policy(p, fn=f"{task.name}_{2}")
 
 
 

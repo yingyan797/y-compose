@@ -18,5 +18,11 @@ Y-Compose is a research framework that combines:
 - Reusable skill library with transfer learning capabilities
 - Interative, graphic web UI with custom task creation
 
-## Installation
-- Download repository
+## Installation and usage
+- Download repository and install required Python packages.
+- Use app.py to launch the web application for creating 2D terrain or analyze LTLf formula
+- Use learning.py to run experiments of LTLf tasks and obtain animated trjectories
+- Use atomic_task.py to draw policy plot for an atomic task.
+
+## Experiment data
+- Policy plots, DFA graphs, and animated trajectories can be seen in the home directory or project/static/training, project/static/policy

@@ -1,5 +1,5 @@
 
-DFA for formula with free variables: T2 T1 T3 T4 
+DFA for formula with free variables: T1 T3 T2 T4 
 Initial state: 0
 Accepting states: 4 
 Rejecting states: 0 1 2 3 
@@ -18,23 +18,23 @@ State 3: XXXX -> state 3
 State 4: 0XXX -> state 4
 State 4: 1XXX -> state 3
 A counter-example of least length (0) is:
-T2              X 
 T1              X 
 T3              X 
+T2              X 
 T4              X 
 
-T2 = {}
 T1 = {}
 T3 = {}
+T2 = {}
 T4 = {}
 
 A satisfying example of least length (2) is:
-T2              X 00
-T1              X 0X
-T3              X 1X
+T1              X 00
+T3              X 0X
+T2              X 1X
 T4              X X1
 
-T2 = {}
 T1 = {}
-T3 = {0}
+T3 = {}
+T2 = {0}
 T4 = {1}

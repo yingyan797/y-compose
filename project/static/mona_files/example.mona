@@ -1,5 +1,5 @@
-#(a | b);
+#(G((t1 -> X(t2))) & t3);
 var2 $ where ~ex1 p where true: p notin $ & p+1 in $;
 allpos $;
-var2 A, B;
-((0 in A) | (0 in B));
+var2 T1, T2, T3;
+((all1 v_1: v_1 in $ & 0<=v_1&v_1<=max($) => (~((v_1 in T1)) | (ex1 v_2: v_2 in $ & v_2=v_1+1 & v_2<=max($) & (v_2 in T2)))) & (0 in T3));

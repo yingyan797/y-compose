@@ -49,7 +49,7 @@ class GoalOrientedBase:
             else:
                 groups.append((region, [gr]))
 
-        def find_all_reached_gr(mask, next_state):
+        def find_all_reached_gr(next_state):
             all_reached_gr = []
             for i, mask in self.goal_regions:
                 if mask[next_state[0], next_state[1]]:
@@ -59,11 +59,11 @@ class GoalOrientedBase:
                 raise ValueError("Goal not reached, why done >= 2? Function shouldn't be called.")
             return all_reached_gr   
 
-        def training_group(mask, next_state, done, gr):
+        def training_group(next_state, done, gr):
             all_reached_gr = list(range(len(self.goal_regions)))
             training_finished = True
             if done >= 2:
-                all_reached_gr = find_all_reached_gr(mask, next_state)
+                all_reached_gr = find_all_reached_gr(next_state)
                 if gr not in all_reached_gr:
                     reward = 0
                     training_finished = False
@@ -74,11 +74,11 @@ class GoalOrientedBase:
                 reward = -10
             return reward, all_reached_gr, training_finished
         
-        def training_nongoal(mask, next_state, done, gr):
+        def training_nongoal(next_state, done, gr):
             all_reached_gr = []
             training_finished = False
             if done >= 2:
-                all_reached_gr = find_all_reached_gr(mask, next_state)
+                all_reached_gr = find_all_reached_gr(next_state)
                 if gr not in all_reached_gr:
                     reward = -1
                 else:
@@ -98,10 +98,12 @@ class GoalOrientedBase:
 
     def train_episodes(self, num_episodes=150, num_iterations=5, max_steps_per_episode=100):
         """Train the agent using Goal-Oriented Q-Learning."""
+        import time
         epsilon = self.epsilon
         goal_regions = self.goal_regions
         # This section is for training elk to reach each goal iteratively.
-        print(f"Beginning training non-goal starting points")
+        starting_time = time.time()
+        print(f"Beginning training non-goal starting points at {starting_time}")
         subgoal_episodes = num_episodes*3
         why_done_subgoal = np.zeros((num_iterations, len(goal_regions), subgoal_episodes), dtype=np.bool_)
         for iteration in range(1, num_iterations+1):
@@ -138,8 +140,9 @@ class GoalOrientedBase:
                     self.epsilon = max(self.epsilon * self.decay_rate, 0.05)
                 print(f"Iteration {iteration} Goal switch why {done_rate}, epsilon {self.epsilon:.2f}")
         
+        
         # This section is for training within goal starting points, reaching different goals or no goals are encouraged.
-        print(f"Beginning training within goal starting points")
+        print(f"Beginning training within goal starting points in {time.time()-starting_time}")
         # Create groups of overlapping goal regions
         goal_groups = self._partition_goals()
         why_done_joint = np.zeros((len(goal_groups), num_iterations*2))
@@ -148,7 +151,7 @@ class GoalOrientedBase:
                 continue
             self.epsilon = epsilon  # reset epsilon
             self.env._first_restriction = True
-            for iteration in range(1, num_iterations+1):
+            for iteration in range(1, num_iterations*2+1):
                 random.shuffle(members)
                 n_success = 0
                 for m in members:
@@ -160,7 +163,7 @@ class GoalOrientedBase:
                             action = self.select_action(self.Q_joint, state, m)
                             next_state, done = self.env.step(action)
 
-                            reward, all_reached_gr, training_finished = training_function(gmask, next_state, done, m)
+                            reward, all_reached_gr, training_finished = training_function(next_state, done, m)
                             self._train_jointq(state, action, reward, next_state, all_reached_gr)
                             if training_finished: 
                                 success = 1 if reward > 0 else 0
@@ -178,43 +181,53 @@ class GoalOrientedBase:
                 why_done_joint[g, iteration-1] = n_success/(len(members)*num_episodes)
 
         self.epsilon = epsilon  # reset epsilon eventually, training is done for elk
+        print(f"Training completed in {time.time()-starting_time}")
         return why_done_subgoal, why_done_joint
 
     def plot_training_results(self, why_done_subgoal, why_done_joint, fn="training"):
-        subgoal_success = np.sum(why_done_subgoal, axis=2)/why_done_subgoal.shape[2]
-        joint_success = why_done_joint
+        # subgoal_success = np.sum(why_done_subgoal, axis=2)/why_done_subgoal.shape[2]    # 2D heat map
+        subgoal_success = why_done_subgoal.transpose(0, 2, 1).reshape(-1, why_done_subgoal.shape[1])
+        joint_success = why_done_joint  # 2D line plots with each row representing one line
 
-        # Create figure with two subplots stacked vertically
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 10))
+        # Create figure with two subplots stacked horizontally (1 row, 2 columns)
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
 
-        # Plot subgoal training results on top subplot
-        for gr, goal in enumerate(self.env.goals.keys()):
-            ax1.plot(range(1, subgoal_success.shape[0] + 1),
-                    subgoal_success[:, gr],
-                    marker='o',
-                    label=f'{goal}')
-        ax1.set_xlabel('Iteration')
-        ax1.set_ylabel('Success Rate')
-        ax1.set_title('Directed Policy Training Progress')
-        ax1.legend()
-        ax1.grid(True)
+        # Plot subgoal training results on left subplot
+        # for gr, goal in enumerate(self.env.goals.keys()):
+        #     ax1.plot(range(1, subgoal_success.shape[0] + 1),
+        #             subgoal_success[:, gr],
+        #             marker='o',
+        #             label=f'{goal}')
+        ax1.set_xlabel('Iteration * episodes')
+        ax1.set_ylabel('Goal Number')
+        # ax1.set_xticks(range(0, subgoal_success.shape[0]))["O", "S1", "S2", "S3"]
+        colors = ["beige", "blue", "purple"]
+        shapes = ["square", "circle"]
+        ax1.set_yticks(range(0, subgoal_success.shape[1]), labels=colors+shapes)
+        ax1.set_title('Directed Policy training success rate')
+        # ax1.legend()
+        ax1.imshow(subgoal_success.T, aspect='auto', cmap='viridis')
+        # ax1.grid(True)
 
-        # Plot joint training results on bottom subplot
+        # Plot joint training results on right subplot
         for group in range(joint_success.shape[0]):
             ax2.plot(range(1, joint_success.shape[1] + 1),
                     joint_success[group, :],
                     marker='o',
                     label=f'Group {group}')
         ax2.set_xlabel('Iteration')
-        ax2.set_ylabel('Success Rate')
-        ax2.set_title('Safe Policy Training Progress')
+        ax2.set_xticks(range(1, joint_success.shape[1]+1))
+        ax2.set_ylabel('Success rate')
+        ax2.set_title('Safe Policy Training success rate')
+        ax2.grid(axis='y')
         ax2.legend()
-        ax2.grid(True)
 
         # Adjust spacing between subplots
         plt.tight_layout()
-        plt.close()
+        
+        # Save the figure BEFORE closing it
         plt.savefig(f"project/static/training/{fn}.png")
+        plt.close()
 
     def q_compose(self, mask):
         pass
@@ -452,6 +465,20 @@ class GoalOrientedNAF(GoalOrientedBase):
 
 # Example usage
 if __name__ == "__main__":
-    # Initialize the environment and agent
-    t = torch.ones(16,16,16, dtype=torch.bool)
-    # get tensor memory size
+    d = Image.open("project/static/training/exmp2.png")
+    s = Image.open("project/static/training/mat.png")
+    # i = Image.open("project/static/training/od3.png")
+    images = [d,s]
+    widths, heights = zip(*(i.size for i in images))
+
+    total_width = sum(widths)
+    max_height = max(heights)
+
+    new_im = Image.new('RGB', (total_width, max_height))
+
+    x_offset = 0
+    for im in images:
+        new_im.paste(im, (x_offset,0))
+        x_offset += im.size[0]
+
+    new_im.save('project/static/training/dfaexp.png')

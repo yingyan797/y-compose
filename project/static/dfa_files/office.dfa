@@ -1,0 +1,54 @@
+
+DFA for formula with free variables: T3 T4 T5 T1 T2 
+Initial state: 0
+Accepting states: 6 
+Rejecting states: 0 1 2 3 4 5 
+
+Automaton has 7 states and 18 BDD-nodes
+Transitions:
+State 0: XXXXX -> state 1
+State 1: 000X0 -> state 1
+State 1: 000X1 -> state 2
+State 1: 001X0 -> state 3
+State 1: 001X1 -> state 4
+State 1: 01XX0 -> state 3
+State 1: 01XX1 -> state 4
+State 1: 1XXXX -> state 5
+State 2: 000XX -> state 2
+State 2: 001XX -> state 4
+State 2: 01XXX -> state 4
+State 2: 1XXXX -> state 5
+State 3: 0XXX0 -> state 3
+State 3: 0XXX1 -> state 4
+State 3: 1XXXX -> state 5
+State 4: 0XX0X -> state 4
+State 4: 0XX1X -> state 6
+State 4: 1XXXX -> state 5
+State 5: XXXXX -> state 5
+State 6: 0XXXX -> state 6
+State 6: 1XXXX -> state 5
+A counter-example of least length (0) is:
+T3              X 
+T4              X 
+T5              X 
+T1              X 
+T2              X 
+
+T3 = {}
+T4 = {}
+T5 = {}
+T1 = {}
+T2 = {}
+
+A satisfying example of least length (2) is:
+T3              X 00
+T4              X 0X
+T5              X 1X
+T1              X X1
+T2              X 1X
+
+T3 = {}
+T4 = {}
+T5 = {0}
+T1 = {1}
+T2 = {0}

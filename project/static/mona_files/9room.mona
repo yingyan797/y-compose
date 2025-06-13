@@ -1,5 +1,5 @@
-#(G(!(t2)) & ((t1 | t3) T t4));
+#(G(!(t1)) & ((t3 | t2) T t4));
 var2 $ where ~ex1 p where true: p notin $ & p+1 in $;
 allpos $;
-var2 T2, T1, T3, T4;
-((all1 v_1: v_1 in $ & 0<=v_1&v_1<=max($) => ~((v_1 in T2))) & (ex1 v_2: v_2 in $ & 0<v_2&v_2<=max($) & (v_2 in T4) & ex1 v_3: v_3 in $ & 0<=v_3&v_3<v_2 & ((v_3 in T1) | (v_3 in T3))));
+var2 T1, T3, T2, T4;
+((all1 v_1: v_1 in $ & 0<=v_1&v_1<=max($) => ~((v_1 in T1))) & (ex1 v_2: v_2 in $ & 0<v_2&v_2<=max($) & (v_2 in T4) & ex1 v_3: v_3 in $ & 0<=v_3&v_3<v_2 & ((v_3 in T3) | (v_3 in T2))));
